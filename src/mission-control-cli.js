@@ -528,7 +528,7 @@ Automation:
     const options = {
       project: args.project || args.projects,
       limit: args.limit || args["max-runs"],
-      provider: args.provider,
+      provider: args.provider || process.env.MISSION_CONTROL_RUNNER_PROVIDER,
       codexBin: args["codex-bin"],
       timeoutMs: args["timeout-ms"],
     };

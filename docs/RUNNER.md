@@ -66,6 +66,12 @@ Use the SDK provider for one sweep:
 npm run runner -- --provider codex-sdk
 ```
 
+Or with an environment variable, which is useful for LaunchAgents and shells:
+
+```bash
+MISSION_CONTROL_RUNNER_PROVIDER=codex-sdk npm run runner
+```
+
 Or make it the default in `mission-control.config.md`:
 
 ```json

@@ -50,6 +50,12 @@ npm run runner -- --provider codex-sdk --limit 1
 
 To make LaunchAgent runs use the SDK provider, set `defaults.runner.provider` to `codex-sdk` in `mission-control.config.md`, then restart the local agents.
 
+For an ad hoc shell or service override, set:
+
+```bash
+MISSION_CONTROL_RUNNER_PROVIDER=codex-sdk
+```
+
 ## Uninstall
 
 ```bash
