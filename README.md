@@ -60,6 +60,8 @@ npm run setup-github-role-apps
 
 See [GitHub App Bots](docs/GITHUB_APP_BOTS.md).
 
+The runner uses these local GitHub App credentials by default for builder and reviewer branch pushes, pull requests, comments, and reviews. If app credentials are missing or the app is not installed on the target repository, the run fails before Codex starts instead of falling back to a personal GitHub identity.
+
 ## Always-On Local Automation
 
 On macOS, install the local web UI, steward, supervisor, dispatcher, runner, and notifier as user LaunchAgents:

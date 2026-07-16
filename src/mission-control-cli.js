@@ -542,6 +542,8 @@ Automation:
       useWorkspaces: args["no-workspace"] ? false : args.workspaces,
       workspaceRoot: args["workspace-root"],
       timeoutMs: args["timeout-ms"],
+      githubAppAuth: args["no-github-app-auth"] ? false : args["github-app-auth"],
+      githubAppCredentialsDir: args["github-apps-dir"],
     };
     if (args.plan || args["dry-run"] || args.dryRun) {
       const state = await readState();
