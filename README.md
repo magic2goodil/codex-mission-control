@@ -17,6 +17,7 @@ This first version is intentionally simple:
 - Includes a dispatcher loop for creating durable builder, reviewer, and owner handoff run records from supervisor actions.
 - Includes a runner loop for consuming queued builder/reviewer runs with Codex CLI or the Codex SDK.
 - Includes a notifier loop for local owner-review and failed-run notifications.
+- Includes a GitHub App manifest setup helper for Mission Control bot identities.
 - Keeps project safety rules and validation commands beside the task.
 - Opens tasks at shareable URLs like `/tasks/task_1`.
 - Supports local image previews, feature branch links, PR links, and task comments.
@@ -43,6 +44,20 @@ http://127.0.0.1:4317
 No external database is required. The app writes to `data/mission-control.json`.
 
 The setup wizard writes `mission-control.config.md`, which is ignored by Git. It asks about your GitHub owner, local workspace, AI tools, and first project. It checks GitHub CLI and SSH readiness, but it does not ask for or store private SSH keys.
+
+Optional: create a private GitHub App identity for Mission Control automation:
+
+```bash
+npm run setup-github-app
+```
+
+For separate builder/reviewer role identities:
+
+```bash
+npm run setup-github-role-apps
+```
+
+See [GitHub App Bots](docs/GITHUB_APP_BOTS.md).
 
 ## Always-On Local Automation
 

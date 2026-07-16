@@ -2,6 +2,7 @@ node_modules/
 .DS_Store
 .env
 mission-control.config.md
+.mission-control/
 data/mission-control.json
 data/local-attachments/
 data/run-outputs/

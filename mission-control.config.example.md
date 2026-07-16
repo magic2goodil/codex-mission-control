@@ -48,6 +48,17 @@ The app reads the first fenced `json mission-control-config` block in this file.
   "workspace": {
     "root": "~/Development"
   },
+  "githubApps": {
+    "mode": "single",
+    "credentialsDir": ".mission-control/github-apps",
+    "defaultRole": "default",
+    "roleMap": {
+      "builder": "default",
+      "backend-reviewer": "default",
+      "frontend-reviewer": "default",
+      "lead-reviewer": "default"
+    }
+  },
   "defaults": {
     "supervisor": {
       "intervalSeconds": 300,
