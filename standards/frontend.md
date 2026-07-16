@@ -14,6 +14,7 @@
 - If the user supplies only a mobile mockup, infer and implement tablet and desktop layouts that preserve the design intent.
 - If a breakpoint is intentionally out of scope, the task must state that explicitly.
 - Do not leave the rest of a page in an old design when redesigning a visible flow unless the task explicitly scopes a single component.
+- When a mockup describes a reusable component, build the component and then use it in the page instead of hard-coding the page instance.
 
 ## Breakpoints
 
@@ -48,3 +49,8 @@ Every async interface must define:
 
 UI tasks must include visual verification notes for mobile, tablet, and desktop. Screenshots are preferred when practical.
 
+## Component Reuse
+
+- Shared UI should come from reusable components, partials, or templates.
+- Do not duplicate the same card, button, badge, modal, or navigation markup in multiple pages.
+- If a shared component changes, update the shared source and verify every visible usage that is affected.

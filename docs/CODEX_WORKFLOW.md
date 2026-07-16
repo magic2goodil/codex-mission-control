@@ -22,6 +22,8 @@ Split broad tasks into branches small enough for one builder thread. For mockups
 
 For UI work, include mobile, tablet, and desktop expectations unless the user explicitly scopes one breakpoint only.
 
+When a task touches repeated UI, plan the shared component/template first. Avoid creating page-specific copies of cards, buttons, badges, modals, or form controls.
+
 ## Builder
 
 Use the generated builder prompt. The builder should:

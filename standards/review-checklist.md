@@ -4,6 +4,8 @@ Fail or send back the task when a material issue exists:
 
 - Source files were skipped and compiled CSS or JS was hand-edited.
 - Sass/CSS is hacky, unstructured, or not maintainable by a human.
+- Repeated UI was copied instead of built as a reusable component/template.
+- A component exists in Storybook or a component catalog but was not updated when changed.
 - A visual change only updates one breakpoint while leaving tablet or desktop broken.
 - A redesign updates one component but leaves the rest of the visible page in the old design without explicit scope.
 - Public content relies entirely on client-side JavaScript for meaningful HTML.
@@ -25,4 +27,3 @@ For UI work, reviewers should specifically ask:
 - Was desktop verified?
 - Was the direct URL/refresh path verified?
 - Was the full visible page considered, not just the smallest component?
-

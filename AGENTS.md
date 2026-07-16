@@ -12,6 +12,7 @@ When working in this repository:
 - For non-trivial tasks, capture user story, expected outcome, acceptance criteria, visual attachments when relevant, and privacy/security notes before implementation.
 - Attach project standards to tasks and enforce them in builder/reviewer prompts.
 - For UI work, require mobile-first implementation plus tablet and desktop expectations unless a task explicitly scopes one breakpoint only.
+- For repeated UI, require reusable components/templates and shared Sass tokens/mixins/classes instead of page-specific copies.
 - Builder work should link the feature branch and PR on the task, then leave a task comment with changed files, validation, known gaps, and the PR URL.
 - Run `npm run check` before committing code changes.
 

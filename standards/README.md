@@ -7,6 +7,7 @@ Projects can reference all of them or only the files that apply. Builders must r
 Default standards:
 
 - `engineering.md`
+- `design-system.md`
 - `frontend.md`
 - `styles.md`
 - `javascript.md`
@@ -19,4 +20,3 @@ Default standards:
 - `review-checklist.md`
 
 For visual work, the default expectation is mobile-first implementation with mobile, tablet, and desktop coverage. If a task is intentionally limited to one breakpoint, the task must say so explicitly.
-

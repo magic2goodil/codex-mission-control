@@ -15,6 +15,7 @@ This first version is intentionally simple:
 - Opens tasks at shareable URLs like `/tasks/task_1`.
 - Supports local image previews, feature branch links, PR links, and task comments.
 - Includes default project standards for engineering, frontend, Sass/CSS, assets, SEO, performance, accessibility, security/privacy, testing, and review.
+- Includes design-system standards for reusable components, Storybook/component catalogs, Twig or equivalent templates, and Sass mixins/tokens.
 
 ## Quick Start
 
@@ -170,6 +171,7 @@ Each project can store standards files. These are injected into builder and revi
 Default standards live in [standards/](standards/):
 
 - engineering
+- design system and component architecture
 - frontend and responsive design
 - Sass/CSS
 - JavaScript
@@ -182,6 +184,8 @@ Default standards live in [standards/](standards/):
 - review checklist
 
 For UI work, the default standard is mobile-first, not mobile-only: builders must account for mobile, tablet, and desktop unless the task explicitly scopes one breakpoint.
+
+For component work, the default standard is reusable-by-design: a card, CTA, badge, modal, or form control should be built once as a component/template and reused across pages. Design artifacts should define responsive variants and component states before page implementation when practical.
 
 ## Current Scope
 

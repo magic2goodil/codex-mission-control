@@ -383,6 +383,7 @@ Builder instructions:
 - Create or switch to the feature branch.
 - For UI or bug tasks, inspect referenced images, screenshots, and mockups before editing.
 - For UI tasks, implement and verify mobile, tablet, and desktop behavior unless the task explicitly scopes one breakpoint only.
+- For repeated UI, prefer shared components/templates and Sass tokens/mixins/classes over page-specific copies.
 - Keep changes scoped to this task.
 - Do not commit secrets, private customer data, or unrelated refactors.
 - Run validation before reporting ready.

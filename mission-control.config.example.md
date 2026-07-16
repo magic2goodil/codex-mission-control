@@ -54,6 +54,7 @@ The app reads the first fenced `json mission-control-config` block in this file.
     ],
     "standards": [
       "standards/engineering.md",
+      "standards/design-system.md",
       "standards/frontend.md",
       "standards/styles.md",
       "standards/javascript.md",
@@ -85,6 +86,7 @@ The app reads the first fenced `json mission-control-config` block in this file.
       ],
       "standards": [
         "standards/engineering.md",
+        "standards/design-system.md",
         "standards/frontend.md",
         "standards/styles.md",
         "standards/javascript.md",

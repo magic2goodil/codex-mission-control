@@ -48,8 +48,9 @@ Project-specific structure may vary, but styles should still be organized by res
 
 - Use design tokens for color, spacing, radius, type size, shadow, and z-index.
 - Do not invent one-off values unless the design requires it.
+- Use Sass mixins for reusable styling APIs such as button treatments, cards, responsive media, and focus states.
+- Prefer changing a shared mixin, token, or component class over patching one page instance.
 
 ## Review Requirement
 
 Reviewers should fail style work that is visually acceptable but structurally unmaintainable.
-

@@ -142,6 +142,31 @@ If tablet or desktop is out of scope, that must be stated explicitly in the task
 
 For redesign work, do not update only the mocked component while leaving the rest of the visible page in an obviously mismatched design state unless the task explicitly scopes a single component.
 
+## Component Design Standard
+
+When a design artifact defines a reusable piece of UI, create or update the shared component instead of hard-coding a one-off page instance.
+
+Preferred design inputs:
+
+- Figma, Sketch, or equivalent design files
+- static mockups
+- screenshots
+- Storybook or a component catalog
+- existing production components
+
+Component tasks should define:
+
+- component anatomy
+- mobile, tablet, and desktop layouts
+- variants
+- states
+- data requirements
+- accessibility requirements
+- reusable Sass tokens, mixins, or component classes
+- template/component location, such as Twig partial, React component, Vue component, Astro component, or server-rendered partial
+
+Twig is acceptable and preferred for PHP/Drupal-style projects when already available. Storybook is preferred for projects with enough reusable UI surface to justify it; otherwise a simpler component gallery is acceptable.
+
 ## Build Flow
 
 When the user says to build:
