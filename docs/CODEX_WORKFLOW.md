@@ -47,17 +47,34 @@ Use the generated builder prompt. The builder should:
 
 Use `docs/REVIEW_PIPELINE.md` for the canonical staged review flow.
 
-Default task flow:
+Default automated task flow:
 
-1. Builder moves work to `builder_review`.
-2. Backend reviewer moves it to `backend_review`, `needs_changes`, or the next applicable review stage.
-3. Frontend reviewer moves it to `frontend_review`, `needs_changes`, or the next applicable review stage.
-4. Primary team lead reviewer moves it to `lead_review`, `needs_changes`, or `user_review`.
-5. Human owner reviews only after `user_review`.
+1. Automation tick assigns `ready` or `queued` tasks to a builder by moving them to `in_progress`.
+2. Builder implements, validates, links branch/PR, comments with changed files and validation, then moves work to `builder_review`.
+3. Automation tick verifies branch/PR intake and routes to the next review lane.
+4. Backend reviewer records `approved`, `skipped`, or `changes_requested`.
+5. Frontend reviewer records `approved`, `skipped`, or `changes_requested`.
+6. Primary team lead reviewer records `approved` or `changes_requested`.
+7. Automation tick moves fully reviewed work to `user_review`.
+8. Human owner reviews only after `user_review`.
 
-Backend and frontend review can be explicitly skipped only when that lane has no relevant surface. The skip must be recorded as a task comment.
+Backend and frontend review can be explicitly skipped only when that lane has no relevant surface. The skip must be recorded as a review outcome with a reason.
 
 Default PR rule: one PR should have one primary Mission Control task. Related tasks can be referenced, but they should not all be moved to `user_review` unless the PR satisfies each task's acceptance criteria.
+
+Run the steward manually with:
+
+```bash
+npm run automation-tick -- --project dollos --limit 10
+```
+
+Record review outcomes with:
+
+```bash
+node src/mission-control-cli.js review task_123 --stage backend --outcome approved --body "Reviewed API and persistence."
+```
+
+A scheduled runner can call the same tick command every few minutes. That runner should only route tasks and create or notify work items; it should not deploy production or merge PRs.
 
 ## Reviewer
 
@@ -72,8 +89,10 @@ Use the generated domain reviewer prompts. The reviewer should:
 7. Verify validation.
 8. Lead with findings.
 9. Confirm the task has branch/PR context and builder notes.
-10. Mark the task `needs_changes`, move it to the next review stage, or document why a review lane is skipped.
+10. Record `approved`, `skipped`, or `changes_requested` with the review command or task detail form.
 
 ## Human Owner
 
 The human owner is the final product and merge authority. Tasks should reach the human owner only after backend/frontend review has been completed or explicitly skipped and the primary team lead has marked the work `user_review`.
+
+When a task reaches `user_review`, Mission Control emits an `owner_review_requested` event and assigns the owner role. External notifications should be built from that event rather than arbitrary status polling.

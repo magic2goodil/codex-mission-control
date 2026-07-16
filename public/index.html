@@ -13,6 +13,7 @@
         <h1>Codex Mission Control</h1>
       </div>
       <div class="topbar-actions">
+        <button id="automationButton" type="button">Run Automation Tick</button>
         <button id="refreshButton" type="button">Refresh</button>
         <a href="https://github.com/magic2goodil/codex-mission-control" target="_blank" rel="noreferrer">GitHub</a>
       </div>
@@ -49,13 +50,18 @@
             <option value="ready">Ready</option>
             <option value="queued">Queued</option>
             <option value="in_progress">In progress</option>
+            <option value="blocked">Blocked</option>
             <option value="builder_review">Builder review</option>
             <option value="backend_review">Backend review</option>
             <option value="frontend_review">Frontend review</option>
             <option value="lead_review">Lead review</option>
             <option value="needs_changes">Needs changes</option>
             <option value="user_review">User review</option>
+            <option value="approved">Approved</option>
+            <option value="merged">Merged</option>
+            <option value="deployed">Deployed</option>
             <option value="done">Done</option>
+            <option value="closed">Closed</option>
           </select>
         </div>
         <div id="taskBoard" class="task-board"></div>

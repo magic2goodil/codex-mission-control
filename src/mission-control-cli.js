@@ -7,7 +7,9 @@ import {
   addComment,
   addProject,
   addTask,
+  automationTick,
   generatePrompt,
+  recordReview,
   readState,
   updateTask,
 } from "./store.js";
@@ -215,12 +217,14 @@ Commands:
   setup                         Create mission-control.config.md interactively
   import-config                 Register projects from mission-control.config.md
   projects                      List projects
-  tasks                         List tasks
+  tasks                         List tasks, optionally --project key and --status value
   add-project --key --name      Add a project
   add-task --project --title    Add a task
   update-task TASK_ID           Update task status, branch, PR, or metadata
   status TASK_ID --status       Update task status
   comment TASK_ID --body        Add a builder/reviewer comment
+  review TASK_ID --stage        Record approved, skipped, or changes_requested
+  automation-tick               Advance ready, blocked, and review tasks
   prompt TASK_ID --role         Print builder, backend-reviewer, frontend-reviewer, or lead-reviewer prompt
 
 Task fields:
@@ -233,6 +237,10 @@ Task fields:
   --standards                   Project standards, comma or newline separated
   --parent                      Parent epic/task ID
   --depends-on                  Dependency task IDs, comma or newline separated
+
+Automation:
+  mission-control automation-tick --project dollos --limit 10
+  mission-control review task_1 --stage backend --outcome approved --body "Reviewed API and migrations."
 `);
     return;
   }
@@ -260,18 +268,27 @@ Task fields:
 
   if (command === "tasks") {
     const state = await readState();
-    printTable(state.tasks.map((task) => {
+    const projectFilter = args.project
+      ? state.projects.find((project) => project.id === args.project || project.key === args.project)
+      : null;
+    if (args.project && !projectFilter) throw new Error(`Unknown project: ${args.project}`);
+    const tasks = state.tasks
+      .filter((task) => !projectFilter || task.projectId === projectFilter.id)
+      .filter((task) => !args.status || task.status === args.status);
+    printTable(tasks.map((task) => {
       const project = state.projects.find((item) => item.id === task.projectId);
       return {
         id: task.id,
         project: project?.key || task.projectId,
         status: task.status,
+        owner: task.assignedAgentRole || (task.status === "user_review" ? "owner" : ""),
+        cycle: task.reviewCycle || 0,
         type: task.type,
         priority: task.priority,
         parent: task.parentTaskId || "",
         title: task.title,
       };
-    }), ["id", "project", "status", "type", "priority", "parent", "title"]);
+    }), ["id", "project", "status", "owner", "cycle", "type", "priority", "parent", "title"]);
     return;
   }
 
@@ -351,6 +368,32 @@ Task fields:
     const taskId = args._[1];
     const comment = await addComment(taskId, args.body, args.author || "Codex Builder");
     console.log(`Added comment ${comment.id} to ${taskId}`);
+    return;
+  }
+
+  if (command === "review") {
+    const taskId = args._[1];
+    const result = await recordReview(taskId, {
+      stage: args.stage || args.role,
+      outcome: args.outcome,
+      body: args.body,
+      author: args.author,
+    });
+    console.log(`Recorded review ${result.review.id}: ${result.review.stageKey} -> ${result.review.outcome}`);
+    for (const action of result.actions || []) console.log(`- ${action}`);
+    return;
+  }
+
+  if (command === "automation-tick" || command === "tick") {
+    const result = await automationTick({
+      project: args.project,
+      limit: args.limit,
+    });
+    if (!result.actions.length) {
+      console.log("No automation actions.");
+      return;
+    }
+    for (const action of result.actions) console.log(`- ${action}`);
     return;
   }
 

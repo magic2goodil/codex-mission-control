@@ -29,6 +29,20 @@ const VALID_STATUSES = new Set([
   "closed",
 ]);
 
+const VALID_REVIEW_OUTCOMES = new Set([
+  "approved",
+  "changes_requested",
+  "skipped",
+]);
+
+const DEPENDENCY_COMPLETE_STATUSES = new Set([
+  "approved",
+  "merged",
+  "deployed",
+  "done",
+  "closed",
+]);
+
 const DEFAULT_REVIEW_PIPELINE = [
   {
     key: "backend",
@@ -56,7 +70,7 @@ const DEFAULT_REVIEW_PIPELINE = [
   },
 ];
 
-export { DATA_FILE, VALID_STATUSES, DEFAULT_REVIEW_PIPELINE };
+export { DATA_FILE, VALID_STATUSES, VALID_REVIEW_OUTCOMES, DEFAULT_REVIEW_PIPELINE };
 
 export async function ensureDataFile() {
   await mkdir(DATA_DIR, { recursive: true });
@@ -281,6 +295,7 @@ export async function addTask(input) {
       assignedAgentRole: String(input.assignedAgentRole || "").trim(),
       assignedThreadId: String(input.assignedThreadId || "").trim(),
       reviewerThreadId: String(input.reviewerThreadId || "").trim(),
+      reviewCycle: 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -304,6 +319,7 @@ export async function updateTask(taskId, patch) {
     if (patch.status && !VALID_STATUSES.has(patch.status)) {
       throw new Error(`Invalid status: ${patch.status}`);
     }
+    const previousStatus = task.status;
     const allowed = [
       "title",
       "description",
@@ -336,6 +352,9 @@ export async function updateTask(taskId, patch) {
     validateTaskRelationships(state, task.id, task.parentTaskId, task.dependsOnTaskIds || []);
     if (Object.prototype.hasOwnProperty.call(patch, "attachments")) {
       task.attachments = normalizeAttachments(patch.attachments);
+    }
+    if (patch.status === "builder_review" && previousStatus !== "builder_review") {
+      task.reviewCycle = Number(task.reviewCycle || 0) + 1;
     }
     task.updatedAt = new Date().toISOString();
     state.events.push({
@@ -376,6 +395,111 @@ export async function addComment(taskId, body, author = "user") {
   });
 }
 
+export async function recordReview(taskId, input = {}) {
+  return mutateState(async (state) => {
+    const task = state.tasks.find((item) => item.id === taskId);
+    if (!task) throw new Error(`Unknown task: ${taskId}`);
+    const project = findProject(state, task.projectId);
+    if (!project) throw new Error(`Task has missing project: ${task.projectId}`);
+    const stages = reviewStagesForProject(project);
+    const stage = findReviewStage(stages, input.stage || input.stageKey || input.role || task.status);
+    if (!stage) throw new Error(`Unknown review stage: ${input.stage || input.stageKey || input.role || task.status}`);
+    const outcome = String(input.outcome || "").trim();
+    if (!VALID_REVIEW_OUTCOMES.has(outcome)) {
+      throw new Error(`Invalid review outcome: ${outcome}`);
+    }
+    const now = new Date().toISOString();
+    const review = {
+      id: nextId(state.reviews, "review"),
+      taskId,
+      projectId: task.projectId,
+      cycle: currentReviewCycle(task),
+      stageKey: stage.key,
+      status: stage.status,
+      role: stage.role,
+      outcome,
+      author: String(input.author || stage.role || "reviewer").trim(),
+      body: String(input.body || "").trim(),
+      createdAt: now,
+    };
+    state.reviews.push(review);
+    state.comments.push({
+      id: nextId(state.comments, "comment"),
+      taskId,
+      author: review.author,
+      body: `Review ${stage.label || stage.key}: ${outcome}${review.body ? `\n\n${review.body}` : ""}`,
+      createdAt: now,
+    });
+    if (outcome === "changes_requested") {
+      task.status = "needs_changes";
+      task.assignedAgentRole = "builder";
+      task.reviewerThreadId = "";
+      task.updatedAt = now;
+      state.events.push({
+        id: nextId(state.events, "event"),
+        type: "review_changes_requested",
+        projectId: task.projectId,
+        taskId,
+        message: `${stage.label || stage.key} requested changes for ${task.title}`,
+        createdAt: now,
+      });
+      return { review, actions: [`${task.id}: changes requested, returned to builder`] };
+    }
+    const actions = advanceTaskWorkflowInState(state, task, {
+      now,
+      author: "Mission Control Automation",
+      reason: `${stage.key} review ${outcome}`,
+    });
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "review_recorded",
+      projectId: task.projectId,
+      taskId,
+      message: `${stage.label || stage.key} review recorded for ${task.title}`,
+      createdAt: now,
+    });
+    return { review, actions };
+  });
+}
+
+export async function automationTick(input = {}) {
+  return mutateState(async (state) => {
+    const now = new Date().toISOString();
+    const project = input.project || input.projectId ? findProject(state, input.project || input.projectId) : null;
+    if ((input.project || input.projectId) && !project) throw new Error(`Unknown project: ${input.project || input.projectId}`);
+    const parsedLimit = Number(input.limit || 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.max(1, parsedLimit) : 10;
+    const actions = [];
+    const candidates = state.tasks
+      .filter((task) => !project || task.projectId === project.id)
+      .filter((task) => !["done", "closed", "deployed", "merged", "user_review", "approved"].includes(task.status))
+      .sort((a, b) => String(a.updatedAt || a.createdAt || "").localeCompare(String(b.updatedAt || b.createdAt || "")));
+
+    for (const task of candidates) {
+      if (actions.length >= limit) break;
+      const before = `${task.status}|${task.assignedAgentRole || ""}|${task.reviewCycle || 0}`;
+      const taskActions = advanceTaskWorkflowInState(state, task, {
+        now,
+        author: "Mission Control Automation",
+        reason: "automation tick",
+      });
+      const after = `${task.status}|${task.assignedAgentRole || ""}|${task.reviewCycle || 0}`;
+      if (taskActions.length || before !== after) {
+        actions.push(...taskActions);
+      }
+    }
+
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "automation_tick",
+      projectId: project?.id || "",
+      message: `Automation tick completed with ${actions.length} action(s).`,
+      createdAt: now,
+    });
+    return { actions };
+  });
+}
+
 export function findProject(state, keyOrId) {
   if (!keyOrId) return null;
   return state.projects.find((project) => project.id === keyOrId || project.key === keyOrId) || null;
@@ -401,6 +525,217 @@ function validateTaskRelationships(state, taskId, parentTaskId, dependsOnTaskIds
     if (dependencyId === taskId) throw new Error("A task cannot depend on itself.");
     if (!findTask(state, dependencyId)) throw new Error(`Unknown dependency task: ${dependencyId}`);
   }
+}
+
+function reviewStagesForProject(project) {
+  return (project.reviewPipeline || []).length ? project.reviewPipeline : DEFAULT_REVIEW_PIPELINE;
+}
+
+function findReviewStage(stages, value) {
+  const normalized = String(value || "").toLowerCase().replaceAll("_", "-");
+  return stages.find((stage) => {
+    const keys = [
+      stage.key,
+      stage.status,
+      stage.role,
+      stage.label,
+    ].map((item) => String(item || "").toLowerCase().replaceAll("_", "-"));
+    return keys.includes(normalized) || keys.some((item) => item && normalized.includes(item));
+  }) || null;
+}
+
+function currentReviewCycle(task) {
+  return Number(task.reviewCycle || 0);
+}
+
+function latestReviewForStage(state, task, stage) {
+  return (state.reviews || [])
+    .filter((review) => review.taskId === task.id)
+    .filter((review) => Number(review.cycle || 0) === currentReviewCycle(task))
+    .filter((review) => review.stageKey === stage.key || review.status === stage.status || review.role === stage.role)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))[0] || null;
+}
+
+function dependencyTasks(state, task) {
+  return (task.dependsOnTaskIds || [])
+    .map((id) => findTask(state, id))
+    .filter(Boolean);
+}
+
+function incompleteDependencies(state, task) {
+  return dependencyTasks(state, task).filter((dependency) => !DEPENDENCY_COMPLETE_STATUSES.has(dependency.status));
+}
+
+function addAutomationComment(state, task, body, now, author = "Mission Control Automation") {
+  const exists = (state.comments || []).some((comment) => (
+    comment.taskId === task.id
+    && comment.author === author
+    && comment.body === body
+  ));
+  if (exists) return false;
+  state.comments.push({
+    id: nextId(state.comments, "comment"),
+    taskId: task.id,
+    author,
+    body,
+    createdAt: now,
+  });
+  return true;
+}
+
+function setTaskWorkflowState(state, task, patch, now) {
+  const previousStatus = task.status;
+  for (const [key, value] of Object.entries(patch)) {
+    task[key] = value;
+  }
+  if (patch.status === "builder_review" && previousStatus !== "builder_review") {
+    task.reviewCycle = Number(task.reviewCycle || 0) + 1;
+  }
+  task.updatedAt = now;
+  state.events.push({
+    id: nextId(state.events, "event"),
+    type: "workflow_state_changed",
+    projectId: task.projectId,
+    taskId: task.id,
+    message: `Task moved to ${task.status}: ${task.title}`,
+    createdAt: now,
+  });
+}
+
+function advanceTaskWorkflowInState(state, task, options = {}) {
+  const now = options.now || new Date().toISOString();
+  const author = options.author || "Mission Control Automation";
+  const actions = [];
+  const project = findProject(state, task.projectId);
+  if (!project) return actions;
+
+  const missingDependencies = incompleteDependencies(state, task);
+  if (missingDependencies.length) {
+    if (["ready", "queued", "in_progress"].includes(task.status)) {
+      setTaskWorkflowState(state, task, {
+        status: "blocked",
+        assignedAgentRole: "",
+        reviewerThreadId: "",
+      }, now);
+      const body = `Blocked by unfinished dependencies: ${missingDependencies.map((item) => `${item.id} (${item.status})`).join(", ")}. Automation will re-check this task on later ticks.`;
+      addAutomationComment(state, task, body, now, author);
+      actions.push(`${task.id}: blocked by dependencies`);
+    }
+    return actions;
+  }
+
+  if (task.status === "blocked") {
+    const body = "Dependencies are now complete. Automation returned this task to the builder queue.";
+    addAutomationComment(state, task, body, now, author);
+    setTaskWorkflowState(state, task, {
+      status: "queued",
+      assignedAgentRole: "",
+      reviewerThreadId: "",
+    }, now);
+    actions.push(`${task.id}: unblocked`);
+  }
+
+  if (["ready", "queued"].includes(task.status)) {
+    setTaskWorkflowState(state, task, {
+      status: "in_progress",
+      assignedAgentRole: "builder",
+      reviewerThreadId: "",
+    }, now);
+    addAutomationComment(state, task, "Assigned to builder. Builder should implement, validate, push a branch/PR, link it here, and move the task to builder_review.", now, author);
+    actions.push(`${task.id}: assigned to builder`);
+    return actions;
+  }
+
+  if (task.status === "needs_changes") {
+    if (!task.assignedAgentRole) {
+      setTaskWorkflowState(state, task, {
+        assignedAgentRole: "builder",
+        reviewerThreadId: "",
+      }, now);
+      actions.push(`${task.id}: reassigned to builder for changes`);
+    }
+    return actions;
+  }
+
+  const stages = reviewStagesForProject(project);
+  if (task.status === "builder_review") {
+    if (!task.reviewCycle) task.reviewCycle = 1;
+    if (!task.branchName || !task.prUrl) {
+      setTaskWorkflowState(state, task, {
+        status: "needs_changes",
+        assignedAgentRole: "builder",
+        reviewerThreadId: "",
+      }, now);
+      addAutomationComment(state, task, "Builder review failed intake: task needs both a feature branch and PR URL before reviewers can start.", now, author);
+      actions.push(`${task.id}: missing branch or PR, returned to builder`);
+      return actions;
+    }
+    return routeToNextReviewStage(state, task, stages, now, author, actions);
+  }
+
+  const currentStage = findReviewStage(stages, task.status);
+  if (currentStage) {
+    const latestReview = latestReviewForStage(state, task, currentStage);
+    if (!latestReview) {
+      if (task.assignedAgentRole !== currentStage.role) {
+        setTaskWorkflowState(state, task, {
+          assignedAgentRole: currentStage.role,
+          reviewerThreadId: "",
+        }, now);
+        actions.push(`${task.id}: assigned to ${currentStage.role}`);
+      }
+      return actions;
+    }
+    if (latestReview.outcome === "changes_requested") {
+      setTaskWorkflowState(state, task, {
+        status: "needs_changes",
+        assignedAgentRole: "builder",
+        reviewerThreadId: "",
+      }, now);
+      actions.push(`${task.id}: returned to builder after ${currentStage.key} review`);
+      return actions;
+    }
+    return routeToNextReviewStage(state, task, stages, now, author, actions);
+  }
+
+  return actions;
+}
+
+function routeToNextReviewStage(state, task, stages, now, author, actions) {
+  for (const stage of stages) {
+    const latestReview = latestReviewForStage(state, task, stage);
+    if (!latestReview || latestReview.outcome === "changes_requested") {
+      if (task.status !== stage.status || task.assignedAgentRole !== stage.role) {
+        setTaskWorkflowState(state, task, {
+          status: stage.status,
+          assignedAgentRole: stage.role,
+          reviewerThreadId: "",
+        }, now);
+        addAutomationComment(state, task, `Routed to ${stage.label || stage.key}. Reviewer should record approved, skipped, or changes_requested for this review cycle.`, now, author);
+        actions.push(`${task.id}: routed to ${stage.role}`);
+      }
+      return actions;
+    }
+  }
+
+  if (task.status !== "user_review") {
+    setTaskWorkflowState(state, task, {
+      status: "user_review",
+      assignedAgentRole: "owner",
+      reviewerThreadId: "",
+    }, now);
+    addAutomationComment(state, task, "All required review stages for this cycle are complete. Human owner review is requested.", now, author);
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "owner_review_requested",
+      projectId: task.projectId,
+      taskId: task.id,
+      message: `${task.title} is ready for human owner review.`,
+      createdAt: now,
+    });
+    actions.push(`${task.id}: ready for owner review`);
+  }
+  return actions;
 }
 
 export function taskWithProject(state, task) {
@@ -449,6 +784,7 @@ Repository path: ${project.repoPath || "(not recorded)"}
 Feature branch: ${task.branchName || "(not recorded)"}
 PR: ${task.prUrl || "(not recorded)"}
 Task type: ${task.type || "task"}
+Review cycle: ${currentReviewCycle(task)}
 Parent epic/task: ${parent ? `${parent.id}: ${parent.title}` : "(none)"}
 
 Task:
@@ -494,8 +830,10 @@ ${reviewerProfile.focus.map((item) => `  - ${item}`).join("\n")}
 - Confirm whether the acceptance criteria are met.
 - Confirm the task has branch/PR context and builder notes when implementation work was done.
 - Confirm whether this PR has one primary task or intentionally covers multiple tasks. If it covers multiple tasks, verify each linked task has clear complete/partial scope notes.
-- If it is not ready for the human owner, mark what needs to change.
-- If it is ready, summarize validation and remaining risk clearly.
+- Record the result with \`mission-control review ${task.id} --stage ${reviewerProfile.stageHint} --outcome approved|skipped|changes_requested --body "..."\`
+- Use \`changes_requested\` for material issues and include concrete findings.
+- Use \`skipped\` only when this review lane truly has no relevant surface.
+- Use \`approved\` when this lane is complete, with validation reviewed and residual risk summarized.
 `;
   }
 
@@ -506,6 +844,7 @@ Repository path: ${project.repoPath || "(not recorded)"}
 Default branch: ${project.defaultBranch || "main"}
 Suggested branch: ${task.branchName || `codex/${project.key}-${task.id}-${slugify(task.title)}`}
 Task type: ${task.type || "task"}
+Review cycle: ${currentReviewCycle(task)}
 Parent epic/task: ${parent ? `${parent.id}: ${parent.title}` : "(none)"}
 
 Before editing:
@@ -553,6 +892,7 @@ Builder instructions:
 - Commit and push only if the user/project workflow asks for that.
 - Link the feature branch and pull request on the task when available.
 - Add a task comment with changed files, validation results, known gaps, PR link, and next review step.
+- Move the task to \`builder_review\` only after the branch, PR, validation notes, and builder comment are present.
 `;
 }
 
@@ -562,6 +902,7 @@ function reviewerProfileForRole(role) {
     return {
       label: "backend reviewer",
       domain: "backend/data/security",
+      stageHint: "backend",
       focus: [
         "API contracts and error handling",
         "data model ownership, migrations, indexes, pagination, and query shape",
@@ -574,6 +915,7 @@ function reviewerProfileForRole(role) {
     return {
       label: "frontend reviewer",
       domain: "frontend/product UI",
+      stageHint: "frontend",
       focus: [
         "mockup fidelity, visual hierarchy, spacing, typography, and interaction quality",
         "mobile, tablet, desktop, direct URL refresh, and no horizontal overflow",
@@ -585,6 +927,7 @@ function reviewerProfileForRole(role) {
   return {
     label: "primary team lead reviewer",
     domain: "product/architecture/release",
+    stageHint: "lead",
     focus: [
       "acceptance criteria, product intent, scope control, and user-facing risk",
       "whether backend and frontend reviews are complete or explicitly waived",

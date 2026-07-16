@@ -1,7 +1,7 @@
 import http from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { addComment, addProject, addTask, generatePrompt, readState, taskWithProject, updateTask } from "./store.js";
+import { addComment, addProject, addTask, automationTick, generatePrompt, readState, recordReview, taskWithProject, updateTask } from "./store.js";
 import { loadConfig } from "./config.js";
 
 const HOST = process.env.HOST || "127.0.0.1";
@@ -160,6 +160,17 @@ async function handleApi(req, res, url) {
   if (commentMatch && req.method === "POST") {
     const body = await readJsonBody(req);
     sendJson(res, 201, { comment: await addComment(commentMatch[1], body.body, body.author) });
+    return;
+  }
+
+  const reviewMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/reviews$/);
+  if (reviewMatch && req.method === "POST") {
+    sendJson(res, 201, await recordReview(reviewMatch[1], await readJsonBody(req)));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/automation/tick") {
+    sendJson(res, 200, await automationTick(await readJsonBody(req)));
     return;
   }
 

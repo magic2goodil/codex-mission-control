@@ -2,6 +2,43 @@
 
 Mission Control uses staged review so the human owner only sees work after the builder and reviewer agents have done their jobs.
 
+## Automation Steward
+
+Mission Control has a bounded automation steward. It advances ticket ownership and review gates; it does not silently approve work, merge PRs, deploy, or replace real code review.
+
+Run one pass manually with:
+
+```bash
+npm run automation-tick -- --project dollos --limit 10
+```
+
+or directly:
+
+```bash
+node src/mission-control-cli.js automation-tick --project dollos --limit 10
+```
+
+The automation tick:
+
+- assigns `ready` or `queued` tasks to the builder by moving them to `in_progress`
+- marks tasks `blocked` when dependencies are unfinished
+- rechecks blocked tasks and returns them to the queue when dependencies are complete
+- requires branch and PR links before reviewer routing
+- routes each `builder_review` task through backend, frontend, and lead review stages
+- records owner handoff by moving fully reviewed tasks to `user_review`
+
+Reviewers must record explicit outcomes:
+
+```bash
+node src/mission-control-cli.js review task_123 --stage backend --outcome approved --body "Reviewed API, query shape, and migration safety."
+node src/mission-control-cli.js review task_123 --stage frontend --outcome skipped --body "No frontend surface in this PR."
+node src/mission-control-cli.js review task_123 --stage lead --outcome changes_requested --body "Split deploy config from UI changes."
+```
+
+Valid outcomes are `approved`, `skipped`, and `changes_requested`.
+
+Each time a builder moves work into `builder_review`, Mission Control increments the task's review cycle. Review outcomes are scoped to that cycle, so an old approval cannot carry forward after a reviewer requests changes and the builder resubmits.
+
 ## Default Flow
 
 1. `in_progress`
@@ -61,11 +98,12 @@ Reviewers should send work back to the builder when fixes are material, risky, a
 
 Expected reviewer outcomes:
 
-- No issues: comment with reviewed scope, validation reviewed, residual risk, and next status.
-- Issues found: move task to `needs_changes`, comment with findings, and tag the builder/next agent in plain language.
+- No issues: record an `approved` review outcome with reviewed scope, validation reviewed, residual risk, and next status.
+- No relevant surface: record a `skipped` review outcome with the reason the lane does not apply.
+- Issues found: record a `changes_requested` review outcome with findings; Mission Control returns the task to `needs_changes` and assigns the builder.
 - Wrong scope: request a PR split or task split.
-- Incomplete acceptance criteria: move to `needs_changes`.
-- Missing review lane: move to the required review status, or document why the lane is not applicable.
+- Incomplete acceptance criteria: record `changes_requested`.
+- Missing review lane: let automation route to the required review status, or record a `skipped` outcome when the lane truly does not apply.
 - Small reviewer fix made: commit the fix, comment with exactly what changed, then continue the review stage.
 
 ## One PR Versus Multiple Tasks
@@ -91,6 +129,8 @@ When one PR intentionally covers multiple tasks:
 ## Human Owner Gate
 
 The human owner should receive only tasks in `user_review`.
+
+`user_review` is the stop point. Automation should not merge to `main`, deploy production, or mark final completion. The human owner approves, requests changes, or merges.
 
 Before a task reaches `user_review`, Mission Control should show:
 

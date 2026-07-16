@@ -194,6 +194,20 @@ h2 {
   color: var(--muted);
 }
 
+.workflow-owner {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  margin: 2px 0 8px;
+  border: 1px solid rgba(94, 224, 141, 0.22);
+  border-radius: 999px;
+  color: rgba(245, 247, 251, 0.86);
+  background: rgba(94, 224, 141, 0.08);
+  padding: 6px 9px;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
 .task-board {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -335,6 +349,71 @@ label {
 .section-heading span,
 .muted-note {
   color: var(--muted);
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-grid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 12px;
+}
+
+.workflow-grid strong {
+  color: var(--text);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.workflow-grid span {
+  overflow-wrap: anywhere;
+}
+
+.review-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.review-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 12px;
+}
+
+.review-card div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-card strong {
+  color: var(--text);
+}
+
+.review-card time {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.review-card p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+.review-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .detail-actions {
@@ -593,6 +672,10 @@ label {
   }
 
   .detail-grid-full {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-grid {
     grid-template-columns: 1fr;
   }
 

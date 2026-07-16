@@ -124,6 +124,18 @@ node src/mission-control-cli.js prompt task_1 --role frontend-reviewer
 node src/mission-control-cli.js prompt task_1 --role lead-reviewer
 ```
 
+Run one workflow automation pass:
+
+```bash
+npm run automation-tick -- --project dollos --limit 10
+```
+
+Record a review outcome:
+
+```bash
+node src/mission-control-cli.js review task_1 --stage backend --outcome approved --body "Reviewed API, data model, and validation."
+```
+
 ## Intended Workflow
 
 1. Capture idea as a task.
@@ -133,11 +145,12 @@ node src/mission-control-cli.js prompt task_1 --role lead-reviewer
 5. Attach project standards that the builder and reviewer must follow.
 6. Builder Codex thread creates a feature branch and implements it.
 7. Builder runs validation, commits, pushes, links the branch/PR, leaves a task comment, and marks the task `builder_review`.
-8. Backend reviewer runs for backend/data/auth/privacy/deploy surfaces, or explicitly comments that backend review is not applicable.
-9. Frontend reviewer runs for UI/CSS/frontend/content/accessibility surfaces, or explicitly comments that frontend review is not applicable.
-10. Primary lead reviewer checks product fit, architecture, scope, prior review findings, and readiness for the owner.
-11. Any reviewer can send it back as `needs_changes`; only lead review should move it to `user_review`.
-12. Human owner approves, asks for changes, merges, or deploys.
+8. Automation tick verifies branch/PR intake and routes work through the review pipeline.
+9. Backend reviewer records `approved`, `skipped`, or `changes_requested`.
+10. Frontend reviewer records `approved`, `skipped`, or `changes_requested`.
+11. Primary lead reviewer records the final review outcome.
+12. Automation tick moves fully reviewed work to `user_review`.
+13. Human owner approves, asks for changes, merges, or deploys.
 
 Default PR rule: one PR should have one primary Mission Control task. Related tasks may be referenced, but they should not all move to `user_review` unless the PR satisfies each task's acceptance criteria. See [docs/REVIEW_PIPELINE.md](docs/REVIEW_PIPELINE.md).
 
@@ -206,6 +219,8 @@ For parallel builder work, the default standard is foundation-first. One builder
 
 ## Current Scope
 
-This repository does not yet spawn Codex threads automatically. It gives you the durable local board, project context, branch/review fields, and prompts needed to coordinate Codex work manually.
+This repository now has a bounded workflow automation steward for assignment, dependency blocking/unblocking, review routing, review-cycle handling, and owner handoff.
+
+It still does not spawn Codex threads, open GitHub PRs, merge branches, deploy, or send external notifications by itself. Those should be built as the next runner layer on top of the existing `automation-tick`, review outcomes, and `owner_review_requested` events.
 
 The next logical layer is GitHub integration and Codex thread/action integration.

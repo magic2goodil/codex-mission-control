@@ -13,6 +13,7 @@ const taskBoard = document.querySelector("#taskBoard");
 const taskDetail = document.querySelector("#taskDetail");
 const projectForm = document.querySelector("#projectForm");
 const taskForm = document.querySelector("#taskForm");
+const automationButton = document.querySelector("#automationButton");
 const refreshButton = document.querySelector("#refreshButton");
 const statusFilter = document.querySelector("#statusFilter");
 const projectCount = document.querySelector("#projectCount");
@@ -106,6 +107,87 @@ function taskRelationshipList(tasks, emptyText) {
   return `<div class="task-link-list">${tasks.map((task) => taskLink(task)).join("")}</div>`;
 }
 
+function workflowOwner(task) {
+  if (task.assignedAgentRole) return task.assignedAgentRole;
+  if (task.status === "user_review") return "owner";
+  if (["ready", "queued", "in_progress", "needs_changes"].includes(task.status)) return "builder";
+  if (task.status === "builder_review") return "automation";
+  return "";
+}
+
+function workflowGate(task) {
+  const owner = workflowOwner(task);
+  if (owner) return `Owner: ${owner}`;
+  if (task.status === "blocked") return "Waiting on dependencies";
+  if (["done", "closed", "merged", "deployed"].includes(task.status)) return "Complete";
+  return "Unassigned";
+}
+
+function reviewStageOptions(project) {
+  const stages = project?.reviewPipeline?.length ? project.reviewPipeline : [
+    { key: "backend", label: "Backend Review", role: "backend-reviewer" },
+    { key: "frontend", label: "Frontend Review", role: "frontend-reviewer" },
+    { key: "lead", label: "Primary Lead Review", role: "lead-reviewer" },
+  ];
+  return stages.map((stage) => `<option value="${escapeHtml(stage.key || stage.role)}">${escapeHtml(stage.label || stage.key || stage.role)}</option>`).join("");
+}
+
+function renderReviewPanel(task, project) {
+  const reviews = task.reviews || [];
+  return `
+    <section class="detail-section workflow-section">
+      <div class="section-heading">
+        <h3>Review Workflow</h3>
+        <span>Cycle ${escapeHtml(task.reviewCycle || 0)}</span>
+      </div>
+      <div class="workflow-grid">
+        <div>
+          <strong>Current owner</strong>
+          <span>${escapeHtml(workflowGate(task))}</span>
+        </div>
+        <div>
+          <strong>Status</strong>
+          <span>${escapeHtml(task.status || "unknown")}</span>
+        </div>
+        <div>
+          <strong>Branch</strong>
+          <span>${escapeHtml(task.branchName || "not linked")}</span>
+        </div>
+        <div>
+          <strong>Pull request</strong>
+          <span>${task.prUrl ? `<a href="${escapeHtml(task.prUrl)}" target="_blank" rel="noreferrer">Open PR</a>` : "not linked"}</span>
+        </div>
+      </div>
+      <div class="review-list">
+        ${reviews.map((review) => `
+          <article class="review-card">
+            <div>
+              <strong>${escapeHtml(review.stageKey || review.role || "review")}: ${escapeHtml(review.outcome || "recorded")}</strong>
+              <time>${escapeHtml(new Date(review.createdAt).toLocaleString())}</time>
+            </div>
+            ${review.body ? `<p>${linkifyText(review.body)}</p>` : ""}
+          </article>
+        `).join("") || `<p class="muted-note">No review outcomes recorded for this task yet.</p>`}
+      </div>
+      <form class="review-form" data-review-form>
+        <label>Review Stage
+          <select name="stage">${reviewStageOptions(project)}</select>
+        </label>
+        <label>Outcome
+          <select name="outcome">
+            <option value="approved">Approved</option>
+            <option value="skipped">Skipped</option>
+            <option value="changes_requested">Changes requested</option>
+          </select>
+        </label>
+        <label>Reviewer <input name="author" value="${escapeHtml(workflowOwner(task) || "reviewer")}"></label>
+        <label>Review Notes <textarea name="body" rows="4" placeholder="Scope reviewed, findings, validation checked, residual risk..."></textarea></label>
+        <button type="submit">Record Review Outcome</button>
+      </form>
+    </section>
+  `;
+}
+
 function attachmentList(attachments) {
   if (!attachments?.length) return "";
   return `
@@ -191,6 +273,7 @@ function renderTasks() {
         </div>
         <h3>${escapeHtml(task.title)}</h3>
         <p>${escapeHtml(task.description || "No description yet.")}</p>
+        <span class="workflow-owner">${escapeHtml(workflowGate(task))}${task.reviewCycle ? ` · cycle ${escapeHtml(task.reviewCycle)}` : ""}</span>
         <small>${escapeHtml(project?.key || "unknown")} · ${escapeHtml(task.priority || "medium")}${task.parentTaskId ? ` · parent ${escapeHtml(task.parentTaskId)}` : ""}${childCount ? ` · ${childCount} child${childCount === 1 ? "" : "ren"}` : ""}${dependencyCount ? ` · ${dependencyCount} dep${dependencyCount === 1 ? "" : "s"}` : ""}${task.attachments?.length ? ` · ${task.attachments.length} attachment${task.attachments.length === 1 ? "" : "s"}` : ""}</small>
       </button>
     `;
@@ -316,6 +399,7 @@ async function renderDetail() {
       </div>
       ${!isFullPage ? `<a href="${escapeHtml(link)}">Open Full Page</a>` : ""}
     </div>
+    ${renderReviewPanel(fullTask, project)}
     <div class="detail-grid ${isFullPage ? "detail-grid-full" : ""}">
       <section class="detail-section">
         <h3>Description</h3>
@@ -451,6 +535,19 @@ taskDetail.addEventListener("click", async (event) => {
 });
 
 taskDetail.addEventListener("submit", async (event) => {
+  const reviewForm = event.target.closest("[data-review-form]");
+  if (reviewForm && state.selectedTaskId) {
+    event.preventDefault();
+    const body = Object.fromEntries(new FormData(reviewForm).entries());
+    await api(`/api/tasks/${state.selectedTaskId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    reviewForm.reset();
+    await loadState();
+    return;
+  }
+
   const form = event.target.closest("[data-comment-form]");
   if (!form || !state.selectedTaskId) return;
   event.preventDefault();
@@ -490,6 +587,23 @@ taskForm.addEventListener("submit", async (event) => {
 
 refreshButton.addEventListener("click", () => {
   loadState().catch((error) => alert(error.message));
+});
+
+automationButton.addEventListener("click", async () => {
+  try {
+    const project = state.projects.find((item) => item.id === state.selectedProjectId);
+    const result = await api("/api/automation/tick", {
+      method: "POST",
+      body: JSON.stringify({
+        project: project?.key || project?.id || "",
+        limit: 10,
+      }),
+    });
+    await loadState();
+    alert(result.actions?.length ? result.actions.join("\n") : "No automation actions.");
+  } catch (error) {
+    alert(error.message);
+  }
 });
 
 window.addEventListener("hashchange", () => {

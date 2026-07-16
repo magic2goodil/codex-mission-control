@@ -202,12 +202,14 @@ codex/<project-key>-<task-id>-<short-title>
 10. Builder links the feature branch and PR on the task.
 11. Builder leaves a task comment with changed files, validation results, known gaps, and the PR link.
 12. Task moves to `builder_review`.
-13. Backend reviewer runs when the PR touches backend, data, auth, analytics, queues, integrations, deployment, security, privacy, or persistence. Otherwise, add a comment explicitly skipping backend review.
-14. Frontend reviewer runs when the PR touches UI, templates, CSS/Sass, frontend JavaScript, content rendering, assets, SEO, accessibility, or public pages. Otherwise, add a comment explicitly skipping frontend review.
-15. Primary team lead reviewer checks product fit, architecture, scope, previous reviewer findings, deployment risk, and whether the PR should be split.
-16. Any reviewer can move the task to `needs_changes` with concrete findings for the builder.
-17. Only the primary team lead should move the task to `user_review`.
-18. The human owner makes the final merge/deploy decision.
+13. Run `npm run automation-tick -- --project <project-key> --limit 10` or let the scheduled steward route the task.
+14. Backend reviewer runs when the PR touches backend, data, auth, analytics, queues, integrations, deployment, security, privacy, or persistence. Otherwise, record a `skipped` backend review.
+15. Frontend reviewer runs when the PR touches UI, templates, CSS/Sass, frontend JavaScript, content rendering, assets, SEO, accessibility, or public pages. Otherwise, record a `skipped` frontend review.
+16. Primary team lead reviewer checks product fit, architecture, scope, previous reviewer findings, deployment risk, and whether the PR should be split.
+17. Reviewers record outcomes with `mission-control review <task-id> --stage backend|frontend|lead --outcome approved|skipped|changes_requested --body "..."`.
+18. A `changes_requested` outcome returns the task to `needs_changes` and assigns the builder.
+19. After all current-cycle review stages are approved or skipped, automation moves the task to `user_review` and emits `owner_review_requested`.
+20. The human owner makes the final merge/deploy decision.
 
 Default PR rule:
 
