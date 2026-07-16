@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "version": 1,
+    "createdAt": "2026-07-15T00:00:00.000Z",
+    "updatedAt": "2026-07-15T00:00:00.000Z"
+  },
+  "projects": [
+    {
+      "id": "project_1",
+      "key": "demo",
+      "name": "Demo Project",
+      "description": "A sample project to show how Mission Control works.",
+      "repoPath": "",
+      "repoUrl": "",
+      "defaultBranch": "main",
+      "validationCommands": [
+        "npm run check"
+      ],
+      "contextLinks": [
+        "README.md",
+        "AGENTS.md"
+      ],
+      "safetyRules": [
+        "Do not deploy production without explicit approval.",
+        "Do not commit secrets or private customer data."
+      ],
+      "createdAt": "2026-07-15T00:00:00.000Z",
+      "updatedAt": "2026-07-15T00:00:00.000Z"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task_1",
+      "projectId": "project_1",
+      "title": "Try Mission Control locally",
+      "description": "Run the app, add a project, add a task, and generate a Codex prompt.",
+      "status": "ready",
+      "priority": "medium",
+      "type": "chore",
+      "area": "setup",
+      "acceptanceCriteria": [
+        "The local app runs on 127.0.0.1:4317.",
+        "A task can be created from the UI or CLI.",
+        "A builder prompt can be generated."
+      ],
+      "privacyNotes": "",
+      "securityNotes": "Keep sample data generic.",
+      "branchName": "",
+      "prUrl": "",
+      "assignedAgentRole": "",
+      "assignedThreadId": "",
+      "reviewerThreadId": "",
+      "createdAt": "2026-07-15T00:00:00.000Z",
+      "updatedAt": "2026-07-15T00:00:00.000Z"
+    }
+  ],
+  "comments": [],
+  "events": [],
+  "runs": [],
+  "reviews": []
+}
+

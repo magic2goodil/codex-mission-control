@@ -1,0 +1,23 @@
+{
+  "name": "codex-mission-control",
+  "version": "0.1.0",
+  "description": "Local-first project/task orchestration for Codex-driven feature branches and reviews.",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "bin": {
+    "mission-control": "./src/mission-control-cli.js"
+  },
+  "scripts": {
+    "setup": "node src/mission-control-cli.js setup",
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "check": "node --check src/config.js && node --check src/store.js && node --check src/server.js && node --check src/mission-control-cli.js && node --check public/app.js",
+    "import-config": "node src/mission-control-cli.js import-config",
+    "tasks": "node src/mission-control-cli.js tasks",
+    "projects": "node src/mission-control-cli.js projects"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

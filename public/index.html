@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codex Mission Control</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Local-first AI work orchestration</p>
+        <h1>Codex Mission Control</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="refreshButton" type="button">Refresh</button>
+        <a href="https://github.com/magic2goodil/codex-mission-control" target="_blank" rel="noreferrer">GitHub</a>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel project-panel">
+        <div class="panel-header">
+          <h2>Projects</h2>
+          <span id="projectCount">0</span>
+        </div>
+        <div id="projectList" class="project-list"></div>
+        <form id="projectForm" class="stacked-form">
+          <h3>Add Project</h3>
+          <label>Key <input name="key" placeholder="myapp" required></label>
+          <label>Name <input name="name" placeholder="My App" required></label>
+          <label>Repo Path <input name="repoPath" placeholder="/absolute/path/to/repo"></label>
+          <label>Validation <input name="validationCommands" placeholder="npm run check"></label>
+          <button type="submit">Add Project</button>
+        </form>
+      </section>
+
+      <section class="panel board-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Tasks</h2>
+            <p id="configStatus">Checking config...</p>
+          </div>
+          <select id="statusFilter" aria-label="Status filter">
+            <option value="">All statuses</option>
+            <option value="idea">Idea</option>
+            <option value="ready">Ready</option>
+            <option value="queued">Queued</option>
+            <option value="in_progress">In progress</option>
+            <option value="builder_review">Builder review</option>
+            <option value="needs_changes">Needs changes</option>
+            <option value="user_review">User review</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+        <div id="taskBoard" class="task-board"></div>
+      </section>
+
+      <aside class="panel detail-panel">
+        <div class="panel-header">
+          <h2>Task Detail</h2>
+        </div>
+        <div id="taskDetail" class="task-detail">
+          <p>Select a task to view prompts and review metadata.</p>
+        </div>
+        <form id="taskForm" class="stacked-form">
+          <h3>Add Task</h3>
+          <label>Project <select name="project" required></select></label>
+          <label>Title <input name="title" placeholder="Build the thing" required></label>
+          <label>Description <textarea name="description" rows="4" placeholder="What should happen?"></textarea></label>
+          <label>Status
+            <select name="status">
+              <option value="idea">Idea</option>
+              <option value="ready">Ready</option>
+              <option value="queued">Queued</option>
+            </select>
+          </label>
+          <label>Acceptance Criteria <textarea name="acceptanceCriteria" rows="3" placeholder="One per line"></textarea></label>
+          <button type="submit">Add Task</button>
+        </form>
+      </aside>
+    </main>
+
+    <template id="taskTemplate">
+      <article class="task-card">
+        <div class="task-card-top">
+          <span class="status"></span>
+          <span class="priority"></span>
+        </div>
+        <h3></h3>
+        <p></p>
+        <small></small>
+      </article>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
+

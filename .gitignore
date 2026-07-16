@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+.env
+mission-control.config.md
+data/mission-control.json
+data/*.local.json
+data/*.tmp
+*.log
