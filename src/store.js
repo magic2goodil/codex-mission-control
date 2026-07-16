@@ -1,10 +1,14 @@
-import { mkdir, readFile, writeFile, copyFile, rename } from "node:fs/promises";
+import { mkdir, readFile, writeFile, copyFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileExists } from "./config.js";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "mission-control.json");
 const EXAMPLE_FILE = path.join(DATA_DIR, "mission-control.example.json");
+const LOCK_DIR = path.join(DATA_DIR, ".mission-control.lock");
+const LOCK_RETRY_MS = 25;
+const LOCK_TIMEOUT_MS = 10_000;
+const STALE_LOCK_MS = 60_000;
 
 const VALID_STATUSES = new Set([
   "idea",
@@ -70,9 +74,58 @@ export async function writeState(state) {
   const now = new Date().toISOString();
   state.meta = state.meta || {};
   state.meta.updatedAt = now;
-  const tmpFile = `${DATA_FILE}.tmp`;
+  const tmpFile = `${DATA_FILE}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(tmpFile, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   await rename(tmpFile, DATA_FILE);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function acquireStateLock() {
+  await mkdir(DATA_DIR, { recursive: true });
+  const startedAt = Date.now();
+  while (true) {
+    try {
+      await mkdir(LOCK_DIR);
+      await writeFile(path.join(LOCK_DIR, "owner"), `${process.pid}\n${new Date().toISOString()}\n`, "utf8");
+      return;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      try {
+        const lockStat = await stat(LOCK_DIR);
+        if (Date.now() - lockStat.mtimeMs > STALE_LOCK_MS) {
+          await rm(LOCK_DIR, { recursive: true, force: true });
+          continue;
+        }
+      } catch (statError) {
+        if (statError?.code !== "ENOENT") throw statError;
+      }
+      if (Date.now() - startedAt > LOCK_TIMEOUT_MS) {
+        throw new Error("Timed out waiting for Mission Control data lock.");
+      }
+      await sleep(LOCK_RETRY_MS);
+    }
+  }
+}
+
+async function releaseStateLock() {
+  await rm(LOCK_DIR, { recursive: true, force: true });
+}
+
+async function mutateState(mutator) {
+  await acquireStateLock();
+  try {
+    const state = await readState();
+    const result = await mutator(state);
+    await writeState(state);
+    return result;
+  } finally {
+    await releaseStateLock();
+  }
 }
 
 function nextId(items, prefix) {
@@ -159,168 +212,168 @@ function normalizeReviewPipeline(value) {
 }
 
 export async function addProject(input) {
-  const state = await readState();
-  const now = new Date().toISOString();
-  const key = String(input.key || "").trim();
-  if (!key) throw new Error("Project key is required.");
-  if (state.projects.some((project) => project.key === key)) {
-    throw new Error(`Project key already exists: ${key}`);
-  }
-  const project = {
-    id: nextId(state.projects, "project"),
-    key,
-    name: String(input.name || key).trim(),
-    description: String(input.description || "").trim(),
-    repoPath: String(input.repoPath || "").trim(),
-    repoUrl: String(input.repoUrl || "").trim(),
-    defaultBranch: String(input.defaultBranch || "main").trim(),
-    validationCommands: normalizeList(input.validationCommands),
-    contextLinks: normalizeList(input.contextLinks),
-    standards: normalizeList(input.standards),
-    safetyRules: normalizeList(input.safetyRules),
-    reviewPipeline: normalizeReviewPipeline(input.reviewPipeline),
-    createdAt: now,
-    updatedAt: now,
-  };
-  state.projects.push(project);
-  state.events.push({
-    id: nextId(state.events, "event"),
-    type: "project_created",
-    projectId: project.id,
-    message: `Project created: ${project.name}`,
-    createdAt: now,
+  return mutateState(async (state) => {
+    const now = new Date().toISOString();
+    const key = String(input.key || "").trim();
+    if (!key) throw new Error("Project key is required.");
+    if (state.projects.some((project) => project.key === key)) {
+      throw new Error(`Project key already exists: ${key}`);
+    }
+    const project = {
+      id: nextId(state.projects, "project"),
+      key,
+      name: String(input.name || key).trim(),
+      description: String(input.description || "").trim(),
+      repoPath: String(input.repoPath || "").trim(),
+      repoUrl: String(input.repoUrl || "").trim(),
+      defaultBranch: String(input.defaultBranch || "main").trim(),
+      validationCommands: normalizeList(input.validationCommands),
+      contextLinks: normalizeList(input.contextLinks),
+      standards: normalizeList(input.standards),
+      safetyRules: normalizeList(input.safetyRules),
+      reviewPipeline: normalizeReviewPipeline(input.reviewPipeline),
+      createdAt: now,
+      updatedAt: now,
+    };
+    state.projects.push(project);
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "project_created",
+      projectId: project.id,
+      message: `Project created: ${project.name}`,
+      createdAt: now,
+    });
+    return project;
   });
-  await writeState(state);
-  return project;
 }
 
 export async function addTask(input) {
-  const state = await readState();
-  const now = new Date().toISOString();
-  const project = findProject(state, input.project || input.projectId);
-  if (!project) throw new Error(`Unknown project: ${input.project || input.projectId}`);
-  const status = input.status || "idea";
-  if (!VALID_STATUSES.has(status)) throw new Error(`Invalid status: ${status}`);
-  const title = String(input.title || "").trim();
-  if (!title) throw new Error("Task title is required.");
-  const parentTaskId = String(input.parentTaskId || input.parent || input.epic || "").trim();
-  const dependsOnTaskIds = normalizeList(input.dependsOnTaskIds || input.dependsOn || input.dependencies);
-  validateTaskRelationships(state, "", parentTaskId, dependsOnTaskIds);
-  const task = {
-    id: nextId(state.tasks, "task"),
-    projectId: project.id,
-    title,
-    description: String(input.description || "").trim(),
-    status,
-    priority: String(input.priority || "medium").trim(),
-    type: String(input.type || "feature").trim(),
-    area: String(input.area || "").trim(),
-    parentTaskId,
-    dependsOnTaskIds,
-    userStory: String(input.userStory || input.story || "").trim(),
-    expectedOutcome: String(input.expectedOutcome || input.expected || "").trim(),
-    attachments: normalizeAttachments(input.attachments || input.attachment),
-    acceptanceCriteria: normalizeList(input.acceptanceCriteria),
-    privacyNotes: String(input.privacyNotes || "").trim(),
-    securityNotes: String(input.securityNotes || "").trim(),
-    branchName: String(input.branchName || "").trim(),
-    prUrl: String(input.prUrl || "").trim(),
-    assignedAgentRole: String(input.assignedAgentRole || "").trim(),
-    assignedThreadId: String(input.assignedThreadId || "").trim(),
-    reviewerThreadId: String(input.reviewerThreadId || "").trim(),
-    createdAt: now,
-    updatedAt: now,
-  };
-  state.tasks.push(task);
-  state.events.push({
-    id: nextId(state.events, "event"),
-    type: "task_created",
-    projectId: project.id,
-    taskId: task.id,
-    message: `Task created: ${task.title}`,
-    createdAt: now,
+  return mutateState(async (state) => {
+    const now = new Date().toISOString();
+    const project = findProject(state, input.project || input.projectId);
+    if (!project) throw new Error(`Unknown project: ${input.project || input.projectId}`);
+    const status = input.status || "idea";
+    if (!VALID_STATUSES.has(status)) throw new Error(`Invalid status: ${status}`);
+    const title = String(input.title || "").trim();
+    if (!title) throw new Error("Task title is required.");
+    const parentTaskId = String(input.parentTaskId || input.parent || input.epic || "").trim();
+    const dependsOnTaskIds = normalizeList(input.dependsOnTaskIds || input.dependsOn || input.dependencies);
+    validateTaskRelationships(state, "", parentTaskId, dependsOnTaskIds);
+    const task = {
+      id: nextId(state.tasks, "task"),
+      projectId: project.id,
+      title,
+      description: String(input.description || "").trim(),
+      status,
+      priority: String(input.priority || "medium").trim(),
+      type: String(input.type || "feature").trim(),
+      area: String(input.area || "").trim(),
+      parentTaskId,
+      dependsOnTaskIds,
+      userStory: String(input.userStory || input.story || "").trim(),
+      expectedOutcome: String(input.expectedOutcome || input.expected || "").trim(),
+      attachments: normalizeAttachments(input.attachments || input.attachment),
+      acceptanceCriteria: normalizeList(input.acceptanceCriteria),
+      privacyNotes: String(input.privacyNotes || "").trim(),
+      securityNotes: String(input.securityNotes || "").trim(),
+      branchName: String(input.branchName || "").trim(),
+      prUrl: String(input.prUrl || "").trim(),
+      assignedAgentRole: String(input.assignedAgentRole || "").trim(),
+      assignedThreadId: String(input.assignedThreadId || "").trim(),
+      reviewerThreadId: String(input.reviewerThreadId || "").trim(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    state.tasks.push(task);
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "task_created",
+      projectId: project.id,
+      taskId: task.id,
+      message: `Task created: ${task.title}`,
+      createdAt: now,
+    });
+    return task;
   });
-  await writeState(state);
-  return task;
 }
 
 export async function updateTask(taskId, patch) {
-  const state = await readState();
-  const task = state.tasks.find((item) => item.id === taskId);
-  if (!task) throw new Error(`Unknown task: ${taskId}`);
-  if (patch.status && !VALID_STATUSES.has(patch.status)) {
-    throw new Error(`Invalid status: ${patch.status}`);
-  }
-  const allowed = [
-    "title",
-    "description",
-    "status",
-    "priority",
-    "type",
-    "area",
-    "parentTaskId",
-    "userStory",
-    "expectedOutcome",
-    "privacyNotes",
-    "securityNotes",
-    "branchName",
-    "prUrl",
-    "assignedAgentRole",
-    "assignedThreadId",
-    "reviewerThreadId",
-  ];
-  for (const key of allowed) {
-    if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      task[key] = String(patch[key] || "").trim();
+  return mutateState(async (state) => {
+    const task = state.tasks.find((item) => item.id === taskId);
+    if (!task) throw new Error(`Unknown task: ${taskId}`);
+    if (patch.status && !VALID_STATUSES.has(patch.status)) {
+      throw new Error(`Invalid status: ${patch.status}`);
     }
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "acceptanceCriteria")) {
-    task.acceptanceCriteria = normalizeList(patch.acceptanceCriteria);
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, "dependsOnTaskIds")) {
-    task.dependsOnTaskIds = normalizeList(patch.dependsOnTaskIds);
-  }
-  validateTaskRelationships(state, task.id, task.parentTaskId, task.dependsOnTaskIds || []);
-  if (Object.prototype.hasOwnProperty.call(patch, "attachments")) {
-    task.attachments = normalizeAttachments(patch.attachments);
-  }
-  task.updatedAt = new Date().toISOString();
-  state.events.push({
-    id: nextId(state.events, "event"),
-    type: "task_updated",
-    projectId: task.projectId,
-    taskId: task.id,
-    message: `Task updated: ${task.title}`,
-    createdAt: task.updatedAt,
+    const allowed = [
+      "title",
+      "description",
+      "status",
+      "priority",
+      "type",
+      "area",
+      "parentTaskId",
+      "userStory",
+      "expectedOutcome",
+      "privacyNotes",
+      "securityNotes",
+      "branchName",
+      "prUrl",
+      "assignedAgentRole",
+      "assignedThreadId",
+      "reviewerThreadId",
+    ];
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) {
+        task[key] = String(patch[key] || "").trim();
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "acceptanceCriteria")) {
+      task.acceptanceCriteria = normalizeList(patch.acceptanceCriteria);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "dependsOnTaskIds")) {
+      task.dependsOnTaskIds = normalizeList(patch.dependsOnTaskIds);
+    }
+    validateTaskRelationships(state, task.id, task.parentTaskId, task.dependsOnTaskIds || []);
+    if (Object.prototype.hasOwnProperty.call(patch, "attachments")) {
+      task.attachments = normalizeAttachments(patch.attachments);
+    }
+    task.updatedAt = new Date().toISOString();
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "task_updated",
+      projectId: task.projectId,
+      taskId: task.id,
+      message: `Task updated: ${task.title}`,
+      createdAt: task.updatedAt,
+    });
+    return task;
   });
-  await writeState(state);
-  return task;
 }
 
 export async function addComment(taskId, body, author = "user") {
-  const state = await readState();
-  const task = state.tasks.find((item) => item.id === taskId);
-  if (!task) throw new Error(`Unknown task: ${taskId}`);
-  const now = new Date().toISOString();
-  const comment = {
-    id: nextId(state.comments, "comment"),
-    taskId,
-    author,
-    body: String(body || "").trim(),
-    createdAt: now,
-  };
-  if (!comment.body) throw new Error("Comment body is required.");
-  state.comments.push(comment);
-  state.events.push({
-    id: nextId(state.events, "event"),
-    type: "comment_created",
-    projectId: task.projectId,
-    taskId,
-    message: `Comment added to ${task.title}`,
-    createdAt: now,
+  return mutateState(async (state) => {
+    const task = state.tasks.find((item) => item.id === taskId);
+    if (!task) throw new Error(`Unknown task: ${taskId}`);
+    const now = new Date().toISOString();
+    const comment = {
+      id: nextId(state.comments, "comment"),
+      taskId,
+      author,
+      body: String(body || "").trim(),
+      createdAt: now,
+    };
+    if (!comment.body) throw new Error("Comment body is required.");
+    state.comments.push(comment);
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "comment_created",
+      projectId: task.projectId,
+      taskId,
+      message: `Comment added to ${task.title}`,
+      createdAt: now,
+    });
+    return comment;
   });
-  await writeState(state);
-  return comment;
 }
 
 export function findProject(state, keyOrId) {
