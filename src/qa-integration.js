@@ -153,6 +153,25 @@ async function prepareIntegrationBranch(repoPath, project, branchName) {
   return "created_branch";
 }
 
+async function currentBranchName(repoPath) {
+  const branch = await git(repoPath, ["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
+  return branch.ok ? normalizeBranchName(branch.output) : "";
+}
+
+async function resetPreparedIntegrationBranch(repoPath, branchName, preparedHead) {
+  if (!preparedHead) return { ok: true, output: "" };
+
+  const currentBranch = await currentBranchName(repoPath);
+  if (currentBranch !== branchName) {
+    return {
+      ok: false,
+      output: `Refusing to reset ${branchName}: current checkout is ${currentBranch || "detached HEAD"}.`,
+    };
+  }
+
+  return git(repoPath, ["reset", "--keep", preparedHead], { allowFailure: true });
+}
+
 async function fetchTaskSource(repoPath, task) {
   const localRef = `refs/mission-control/tasks/${safeRefSegment(task.id)}`;
   const branchName = normalizeBranchName(task.branchName);
@@ -309,6 +328,14 @@ function allTaskResults(tasks, status, output) {
   }));
 }
 
+function appendOutput(existing, addition) {
+  const current = String(existing || "").trim();
+  const next = String(addition || "").trim();
+  if (!current) return truncateOutput(next);
+  if (!next) return truncateOutput(current);
+  return truncateOutput(`${current}\n${next}`);
+}
+
 async function integrateProject(projectPlan, options = {}) {
   const project = {
     id: projectPlan.projectId,
@@ -348,6 +375,8 @@ async function integrateProject(projectPlan, options = {}) {
   }
 
   let original = null;
+  let preparedHead = "";
+  let pushed = false;
   try {
     original = await currentCheckout(repoPath);
     const worktreeStatus = await git(repoPath, ["status", "--porcelain"]);
@@ -360,6 +389,8 @@ async function integrateProject(projectPlan, options = {}) {
 
     const prepared = await prepareIntegrationBranch(repoPath, project, projectPlan.integrationBranch);
     result.output = prepared;
+    const preparedCommit = await git(repoPath, ["rev-parse", "--verify", "HEAD"]);
+    preparedHead = preparedCommit.output.trim();
 
     const mergedTasks = [];
     for (const task of projectPlan.tasks) {
@@ -403,6 +434,7 @@ async function integrateProject(projectPlan, options = {}) {
 
     result.status = "ready";
     result.output = truncateOutput(push.output || `Pushed ${projectPlan.integrationBranch}.`);
+    pushed = true;
     for (const task of mergedTasks) task.status = "ready";
     return result;
   } catch (error) {
@@ -411,6 +443,15 @@ async function integrateProject(projectPlan, options = {}) {
     result.tasks = result.tasks.length ? result.tasks : allTaskResults(projectPlan.tasks, "blocked", error.message);
     return result;
   } finally {
+    if (preparedHead && !pushed) {
+      const reset = await resetPreparedIntegrationBranch(repoPath, projectPlan.integrationBranch, preparedHead);
+      if (!reset.ok) {
+        result.output = appendOutput(
+          result.output,
+          `Cleanup warning: ${reset.output || `could not reset ${projectPlan.integrationBranch} to ${preparedHead}`}`,
+        );
+      }
+    }
     await restoreCheckout(repoPath, original);
   }
 }

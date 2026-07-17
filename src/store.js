@@ -292,6 +292,25 @@ function normalizeReviewPolicy(value = {}) {
   };
 }
 
+function reviewPolicyInputForProject(input = {}) {
+  const reviewPolicy = { ...(input.reviewPolicy || {}) };
+  if (
+    !Object.prototype.hasOwnProperty.call(reviewPolicy, "trustLeadApprovals")
+    && !Object.prototype.hasOwnProperty.call(reviewPolicy, "trustLeads")
+    && Object.prototype.hasOwnProperty.call(input, "trustLeadApprovals")
+  ) {
+    reviewPolicy.trustLeadApprovals = input.trustLeadApprovals;
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(reviewPolicy, "integrationBranch")
+    && !Object.prototype.hasOwnProperty.call(reviewPolicy, "reviewBranch")
+    && Object.prototype.hasOwnProperty.call(input, "integrationBranch")
+  ) {
+    reviewPolicy.integrationBranch = input.integrationBranch;
+  }
+  return reviewPolicy;
+}
+
 export async function addProject(input) {
   return mutateState(async (state) => {
     const now = new Date().toISOString();
@@ -300,6 +319,7 @@ export async function addProject(input) {
     if (state.projects.some((project) => project.key === key)) {
       throw new Error(`Project key already exists: ${key}`);
     }
+    const reviewPolicy = normalizeReviewPolicy(reviewPolicyInputForProject(input));
     const project = {
       id: nextId(state.projects, "project"),
       key,
@@ -313,9 +333,9 @@ export async function addProject(input) {
       standards: normalizeList(input.standards),
       safetyRules: normalizeList(input.safetyRules),
       reviewPipeline: normalizeReviewPipeline(input.reviewPipeline),
-      reviewPolicy: normalizeReviewPolicy(input.reviewPolicy),
-      trustLeadApprovals: trustLeadApprovalsEnabled(input),
-      integrationBranch: integrationBranchName(input),
+      reviewPolicy,
+      trustLeadApprovals: reviewPolicy.trustLeadApprovals,
+      integrationBranch: reviewPolicy.integrationBranch,
       createdAt: now,
       updatedAt: now,
     };
@@ -368,6 +388,8 @@ export async function updateProject(projectId, patch = {}) {
         ...(project.reviewPolicy || {}),
         ...(patch.reviewPolicy || {}),
       });
+      project.trustLeadApprovals = project.reviewPolicy.trustLeadApprovals;
+      project.integrationBranch = project.reviewPolicy.integrationBranch;
     }
     project.updatedAt = now;
     state.events.push({

@@ -69,7 +69,30 @@ function hasOwnValue(item, key) {
   return Object.prototype.hasOwnProperty.call(item || {}, key);
 }
 
+function reviewPolicyFromConfig(rawProject = {}, defaults = {}) {
+  const reviewPolicy = {
+    ...(defaults.reviewPolicy || {}),
+    ...(rawProject.reviewPolicy || {}),
+  };
+  if (
+    !hasOwnValue(rawProject.reviewPolicy, "trustLeadApprovals")
+    && !hasOwnValue(rawProject.reviewPolicy, "trustLeads")
+    && hasOwnValue(rawProject, "trustLeadApprovals")
+  ) {
+    reviewPolicy.trustLeadApprovals = rawProject.trustLeadApprovals;
+  }
+  if (
+    !hasOwnValue(rawProject.reviewPolicy, "integrationBranch")
+    && !hasOwnValue(rawProject.reviewPolicy, "reviewBranch")
+    && hasOwnValue(rawProject, "integrationBranch")
+  ) {
+    reviewPolicy.integrationBranch = rawProject.integrationBranch;
+  }
+  return reviewPolicy;
+}
+
 export function projectFromConfig(rawProject, defaults = {}) {
+  const reviewPolicy = reviewPolicyFromConfig(rawProject, defaults);
   return {
     key: rawProject.key,
     name: rawProject.name,
@@ -82,10 +105,8 @@ export function projectFromConfig(rawProject, defaults = {}) {
     standards: rawProject.standards || defaults.standards || [],
     safetyRules: rawProject.safetyRules || defaults.safetyRules || [],
     reviewPipeline: rawProject.reviewPipeline || defaults.reviewPipeline || [],
-    reviewPolicy: rawProject.reviewPolicy || defaults.reviewPolicy || {},
-    trustLeadApprovals: hasOwnValue(rawProject, "trustLeadApprovals")
-      ? trustLeadApprovalsEnabled(rawProject)
-      : trustLeadApprovalsEnabled(defaults),
-    integrationBranch: integrationBranchName(rawProject) || integrationBranchName(defaults),
+    reviewPolicy,
+    trustLeadApprovals: trustLeadApprovalsEnabled({ ...rawProject, reviewPolicy }),
+    integrationBranch: integrationBranchName({ ...rawProject, reviewPolicy }) || integrationBranchName(defaults),
   };
 }

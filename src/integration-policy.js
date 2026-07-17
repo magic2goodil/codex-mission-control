@@ -12,18 +12,22 @@ function booleanFlag(value) {
   return false;
 }
 
+function hasOwnValue(item, key) {
+  return Object.prototype.hasOwnProperty.call(item || {}, key);
+}
+
 export function integrationBranchName(project = {}) {
-  return String(
-    project.integrationBranch
-    || project.qaIntegrationBranch
-    || project.reviewPolicy?.integrationBranch
-    || project.reviewPolicy?.reviewBranch
-    || "",
-  ).trim();
+  const policy = project.reviewPolicy || {};
+  const policyBranch = String(policy.integrationBranch || policy.reviewBranch || "").trim();
+  if (policyBranch) return policyBranch;
+  return String(project.integrationBranch || project.qaIntegrationBranch || "").trim();
 }
 
 export function trustLeadApprovalsEnabled(project = {}) {
-  return booleanFlag(project.trustLeadApprovals ?? project.reviewPolicy?.trustLeadApprovals ?? project.reviewPolicy?.trustLeads);
+  const policy = project.reviewPolicy || {};
+  if (hasOwnValue(policy, "trustLeadApprovals")) return booleanFlag(policy.trustLeadApprovals);
+  if (hasOwnValue(policy, "trustLeads")) return booleanFlag(policy.trustLeads);
+  return booleanFlag(project.trustLeadApprovals);
 }
 
 export function integrationBranchSafetyError(project = {}, branchName = integrationBranchName(project)) {
