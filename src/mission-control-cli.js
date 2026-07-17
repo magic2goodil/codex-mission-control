@@ -20,6 +20,7 @@ import { dispatchSupervisorActions, formatDispatchReport, planDispatches } from 
 import { formatRunnerPlan, formatRunnerReport, planRunnableRuns, runQueuedRuns } from "./runner.js";
 import { formatNotificationReport, sendPendingNotifications } from "./notifier.js";
 import { formatQaIntegrationReport, planQaIntegrations, runQaIntegration } from "./qa-integration.js";
+import { branchWebUrl, integrationBranchName } from "./integration-policy.js";
 import {
   expandHome,
   loadConfig,
@@ -364,14 +365,18 @@ Automation:
       .filter((task) => !projectFilter || task.projectId === projectFilter.id);
     printTable(tasks.map((task) => {
       const project = state.projects.find((item) => item.id === task.projectId);
+      const integrationBranch = task.integrationBranch || integrationBranchName(project);
+      const integrationLink = task.integrationBranchUrl || branchWebUrl(project, integrationBranch);
       return {
         id: task.id,
         project: project?.key || task.projectId,
+        integrationBranch,
+        integrationLink,
         branch: task.branchName || "",
         pr: task.prUrl || "",
         title: task.title,
       };
-    }), ["id", "project", "branch", "pr", "title"]);
+    }), ["id", "project", "integrationBranch", "integrationLink", "branch", "pr", "title"]);
     return;
   }
 

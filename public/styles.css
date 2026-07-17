@@ -206,13 +206,27 @@ h2 {
   gap: 10px;
 }
 
+.qa-review-item {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid rgba(95, 140, 255, 0.22);
+  border-radius: 12px;
+  background: rgba(95, 140, 255, 0.08);
+}
+
 .qa-review-item button {
   display: grid;
   width: 100%;
   gap: 6px;
   text-align: left;
-  border-color: rgba(95, 140, 255, 0.22);
-  background: rgba(95, 140, 255, 0.08);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.qa-review-item button:hover {
+  filter: none;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .qa-review-item strong {
