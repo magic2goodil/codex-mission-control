@@ -58,7 +58,7 @@ function safeRefSegment(value) {
 function workspaceSegment(value) {
   return safeRefSegment(value)
     .toLowerCase()
-    .replace(/^-+|-+$/g, "")
+    .replace(/^[.-]+|[.-]+$/g, "")
     .slice(0, 72) || "workspace";
 }
 

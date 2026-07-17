@@ -484,3 +484,79 @@ test("QA integration refuses workspace roots inside the registered repo", async 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("QA integration keeps sanitized project workspace segments inside the workspace root", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "mc-qa-integration-"));
+  const remotePath = path.join(root, "remote.git");
+  const repoPath = path.join(root, "repo");
+  const workspaceRoot = path.join(root, "qa-workspaces");
+
+  try {
+    await git(root, ["init", "--bare", remotePath]);
+    await git(root, ["clone", remotePath, repoPath]);
+    await git(repoPath, ["config", "user.email", "mission-control-test@example.com"]);
+    await git(repoPath, ["config", "user.name", "Mission Control Test"]);
+    await git(repoPath, ["checkout", "-b", "main"]);
+    await writeFile(path.join(repoPath, "app.txt"), "base\n", "utf8");
+    await git(repoPath, ["add", "app.txt"]);
+    await git(repoPath, ["commit", "-m", "base"]);
+    await git(repoPath, ["push", "origin", "main"]);
+    await git(repoPath, ["push", "origin", "main:qa/integration"]);
+
+    await git(repoPath, ["checkout", "-b", "feature/task"]);
+    await writeFile(path.join(repoPath, "app.txt"), "feature\n", "utf8");
+    await git(repoPath, ["commit", "-am", "feature"]);
+    await git(repoPath, ["push", "origin", "feature/task"]);
+
+    await mkdir(path.join(root, "data"), { recursive: true });
+    await writeFile(path.join(root, "data", "mission-control.json"), `${JSON.stringify({
+      meta: {},
+      projects: [
+        {
+          id: "project_1",
+          key: "..",
+          name: "Demo",
+          repoPath,
+          repoUrl: "",
+          defaultBranch: "main",
+          validationCommands: [`${JSON.stringify(process.execPath)} -e "process.exit(0)"`],
+          reviewPolicy: {
+            trustLeadApprovals: true,
+            integrationBranch: "qa/integration",
+          },
+        },
+      ],
+      tasks: [
+        {
+          id: "task_1",
+          projectId: "project_1",
+          title: "Feature task",
+          status: "qa_review",
+          branchName: "feature/task",
+          prUrl: "",
+        },
+      ],
+      comments: [],
+      events: [],
+      reviews: [],
+      runs: [],
+    }, null, 2)}\n`, "utf8");
+
+    const script = `
+      import { runQaIntegration } from ${JSON.stringify(qaIntegrationModuleUrl)};
+      const report = await runQaIntegration({ workspaceRoot: ${JSON.stringify(workspaceRoot)} });
+      console.log(JSON.stringify(report));
+    `;
+    const runResult = await run(process.execPath, ["--input-type=module", "-e", script], { cwd: root });
+    const report = JSON.parse(runResult.stdout.trim());
+    const relativeWorkspace = path.relative(workspaceRoot, report.projects[0].workspacePath);
+
+    assert.equal(report.projects[0].status, "ready");
+    assert.ok(relativeWorkspace);
+    assert.equal(relativeWorkspace.startsWith(".."), false);
+    assert.equal(path.isAbsolute(relativeWorkspace), false);
+    assert.match(relativeWorkspace, /^workspace\//);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
