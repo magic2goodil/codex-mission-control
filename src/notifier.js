@@ -4,6 +4,11 @@ import { mutateState, readState, findProject, findTask } from "./store.js";
 
 const execFileAsync = promisify(execFile);
 const NOTIFIABLE_STATUSES = new Set(["notified", "failed"]);
+const OWNER_NOTIFICATION_ACTIONS = new Set([
+  "notify_owner",
+  "notify_qa_review",
+  "qa_bundle_ready",
+]);
 
 function nextId(items, prefix) {
   const max = (items || [])
@@ -35,7 +40,7 @@ function needsNotification(run) {
   if (
     run.status === "notified"
     && run.group === "owner"
-    && ["notify_owner", "notify_qa_review"].includes(run.actionType)
+    && OWNER_NOTIFICATION_ACTIONS.has(run.actionType)
   ) {
     return !run.externalNotifiedAt && run.notificationStatus !== "failed";
   }
@@ -55,11 +60,11 @@ function notificationFor(state, run) {
       body: `${task?.title || run.taskId}. Check ${run.outputPath || "the run log"}.`,
     };
   }
-  if (run.actionType === "notify_qa_review") {
+  if (run.actionType === "notify_qa_review" || run.actionType === "qa_bundle_ready") {
     return {
       title: "Mission Control QA review ready",
       subtitle: `${project?.key || run.projectId} · ${run.taskId}`,
-      body: `${task?.title || "Task ready for local QA"}${run.prUrl ? ` · ${run.prUrl}` : ""}`,
+      body: `${task?.title || "Task ready for local QA"}${run.integrationBranch ? ` · ${run.integrationBranch}` : ""}${run.prUrl ? ` · ${run.prUrl}` : ""}`,
     };
   }
   return {
@@ -179,7 +184,7 @@ export function formatNotificationReport(report) {
     "",
   ];
   if (!report.pending.length) {
-    lines.push("No owner or failure notifications need to be sent.");
+    lines.push("No owner, QA bundle, or failure notifications need to be sent.");
   }
   for (const run of report.pending) {
     lines.push(`[${run.id}] ${run.notification.title}`);
