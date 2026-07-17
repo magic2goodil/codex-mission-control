@@ -183,6 +183,7 @@ async function assertBranchReuseIsSafe(run, env, log) {
   const reason = branchReuseSafetyReason(run, pr);
   if (!reason) return;
   log.write(`${reason}\n`);
+  await recordUnsafeBranchReuse(run, reason);
   throw new Error(reason);
 }
 
@@ -414,6 +415,33 @@ async function appendTaskComment(state, run, body, now, author = "Mission Contro
     author,
     body,
     createdAt: now,
+  });
+}
+
+async function recordUnsafeBranchReuse(run, reason) {
+  const now = new Date().toISOString();
+  await mutateState(async (state) => {
+    state.events = state.events || [];
+    const task = findTask(state, run.taskId);
+    if (task) {
+      task.status = "needs_changes";
+      task.assignedAgentRole = "builder";
+      task.updatedAt = now;
+    }
+    await appendTaskComment(
+      state,
+      run,
+      `${run.id} blocked before launch: ${reason}`,
+      now,
+    );
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "branch_reuse_blocked",
+      projectId: run.projectId,
+      taskId: run.taskId,
+      message: `${run.id} blocked stale branch reuse`,
+      createdAt: now,
+    });
   });
 }
 
