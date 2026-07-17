@@ -8,7 +8,8 @@ It can:
 
 - create builder runs for `start_builder`, `start_builder_fix`, and `return_to_builder`
 - create reviewer runs for `start_review` and `continue_review`
-- create owner handoff notifications for `notify_owner` and Trust Leads QA notifications for `notify_qa_review`
+- create owner handoff notifications for `notify_owner`, `notify_qa_review`, and validated `qa_bundle_ready` Trust Leads QA bundles
+- route `qa_integration_blocked` work back to a builder remediation run instead of leaving blocked QA bundles silent
 - update task status and assignment so work is not dispatched repeatedly
 - store a prompt snapshot on each run
 - enforce builder, reviewer, and owner handoff concurrency
