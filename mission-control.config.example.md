@@ -85,7 +85,9 @@ The app reads the first fenced `json mission-control-config` block in this file.
       "provider": "codex-cli",
       "useWorkspaces": true,
       "workspaceRoot": "~/.mission-control/run-workspaces",
-      "timeoutMs": 7200000
+      "timeoutMs": 7200000,
+      "githubAppAuth": true,
+      "githubAppCredentialsDir": ".mission-control/github-apps"
     },
     "validationCommands": [
       "npm run check"
