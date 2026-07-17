@@ -115,9 +115,9 @@ function branchUrl(project, branchName) {
 function integrationBranch(task, project) {
   return String(
     task.integrationBranch
-    || project?.integrationBranch
     || project?.reviewPolicy?.integrationBranch
     || project?.reviewPolicy?.reviewBranch
+    || project?.integrationBranch
     || "",
   ).trim();
 }
@@ -132,6 +132,13 @@ function integrationStatusLabel(task) {
   const status = String(task.integrationStatus || "").trim();
   if (!status) return "pending";
   return status.replaceAll("_", " ");
+}
+
+function trustLeadApprovalsEnabled(project) {
+  const policy = project?.reviewPolicy || {};
+  if (Object.prototype.hasOwnProperty.call(policy, "trustLeadApprovals")) return truthyFlag(policy.trustLeadApprovals);
+  if (Object.prototype.hasOwnProperty.call(policy, "trustLeads")) return truthyFlag(policy.trustLeads);
+  return truthyFlag(project?.trustLeadApprovals);
 }
 
 function taskSummaryMeta(task) {
@@ -369,15 +376,26 @@ function renderQaReviewPanel() {
       </div>
       ${items.length ? `
         <div class="qa-review-items">
-          ${items.map((task) => `
+          ${items.map((task) => {
+            const qaBranch = integrationBranch(task, project);
+            const qaBranchHref = integrationBranchUrl(task, project);
+            const qaBranchMeta = qaBranch
+              ? `<div class="qa-card-meta">
+                  <span>QA ${escapeHtml(integrationStatusLabel(task))}</span>
+                  ${qaBranchHref ? `<a href="${escapeHtml(qaBranchHref)}" target="_blank" rel="noreferrer">Open ${escapeHtml(qaBranch)}</a>` : `<span>${escapeHtml(qaBranch)}</span>`}
+                </div>`
+              : "";
+            return `
             <article class="qa-review-item">
               <button type="button" data-task-id="${escapeHtml(task.id)}">
                 <span class="task-id-pill">${escapeHtml(task.id)}</span>
                 <strong>${escapeHtml(task.title)}</strong>
                 <small>${escapeHtml(task.branchName || "No branch")} ${task.prUrl ? "· PR linked" : "· No PR"}</small>
               </button>
+              ${qaBranchMeta}
             </article>
-          `).join("")}
+          `;
+          }).join("")}
         </div>
       ` : `<p class="muted-note">Nothing is waiting for local QA yet.</p>`}
     </section>
@@ -473,7 +491,7 @@ function renderBranchPanel(task, project) {
 }
 
 function renderIntegrationPanel(task, project) {
-  const enabled = truthyFlag(project?.trustLeadApprovals ?? project?.reviewPolicy?.trustLeadApprovals ?? project?.reviewPolicy?.trustLeads);
+  const enabled = trustLeadApprovalsEnabled(project);
   const qaBranch = integrationBranch(task, project);
   if (!enabled && !qaBranch && !task.integrationStatus) return "";
   const qaBranchHref = integrationBranchUrl(task, project);
