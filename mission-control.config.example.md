@@ -89,7 +89,13 @@ The app reads the first fenced `json mission-control-config` block in this file.
       "workspaceRoot": "~/.mission-control/run-workspaces",
       "timeoutMs": 7200000,
       "githubAppAuth": true,
-      "githubAppCredentialsDir": ".mission-control/github-apps"
+      "githubAppCredentialsDir": ".mission-control/github-apps",
+      "gitLock": {
+        "lockRoot": "~/.mission-control/locks/git",
+        "timeoutMs": 180000,
+        "staleMs": 900000,
+        "pollMs": 750
+      }
     },
     "qaIntegration": {
       "intervalSeconds": 300,

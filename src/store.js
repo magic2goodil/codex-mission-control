@@ -405,6 +405,13 @@ export async function updateProject(projectId, patch = {}) {
       };
       project.localQaPreview = project.qaIntegration.localPreview || project.localQaPreview || null;
     }
+    if (Object.prototype.hasOwnProperty.call(patch, "localQaPreview")) {
+      project.localQaPreview = patch.localQaPreview || null;
+      project.qaIntegration = {
+        ...(project.qaIntegration || {}),
+        localPreview: project.localQaPreview,
+      };
+    }
     if (Object.prototype.hasOwnProperty.call(patch, "promotion")) {
       project.promotion = {
         ...(project.promotion || {}),

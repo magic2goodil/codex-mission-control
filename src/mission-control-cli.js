@@ -81,6 +81,15 @@ function booleanOption(value, fallback = false) {
   return fallback;
 }
 
+function normalizeList(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (!value) return [];
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 async function bestEffortCheck(command, args) {
   try {
     const result = await execFileAsync(command, args, { timeout: 10_000 });
@@ -557,6 +566,26 @@ Automation:
     if (Object.prototype.hasOwnProperty.call(args, "qa-reviewer-role")) reviewPolicy.qaReviewerRole = args["qa-reviewer-role"];
     if (Object.prototype.hasOwnProperty.call(args, "integration-branch")) reviewPolicy.integrationBranch = args["integration-branch"];
     if (Object.keys(reviewPolicy).length) patch.reviewPolicy = reviewPolicy;
+    if (
+      Object.prototype.hasOwnProperty.call(args, "local-qa-preview")
+      || Object.prototype.hasOwnProperty.call(args, "no-local-qa-preview")
+      || Object.prototype.hasOwnProperty.call(args, "local-qa-preview-checkout")
+      || Object.prototype.hasOwnProperty.call(args, "local-qa-preview-branch")
+      || Object.prototype.hasOwnProperty.call(args, "local-qa-preview-stash-dirty")
+      || Object.prototype.hasOwnProperty.call(args, "local-qa-preview-create")
+      || Object.prototype.hasOwnProperty.call(args, "local-qa-preview-post-update")
+      || Object.prototype.hasOwnProperty.call(args, "local-qa-preview-restart-agent")
+    ) {
+      patch.localQaPreview = args["no-local-qa-preview"] ? null : {
+        enabled: booleanOption(args["local-qa-preview"], true),
+        checkoutPath: expandHome(args["local-qa-preview-checkout"] || ""),
+        branch: args["local-qa-preview-branch"] || args["integration-branch"] || "",
+        stashDirty: booleanOption(args["local-qa-preview-stash-dirty"], false),
+        createIfMissing: booleanOption(args["local-qa-preview-create"], false),
+        postUpdateCommands: normalizeList(args["local-qa-preview-post-update"]),
+        restartLaunchAgents: normalizeList(args["local-qa-preview-restart-agent"]),
+      };
+    }
     const project = await updateProject(projectId, patch);
     console.log(`Updated project ${project.id}: ${project.name}`);
     return;

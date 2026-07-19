@@ -14,6 +14,7 @@ import {
   prepareGitHubAppAuth,
   redactSecrets,
 } from "./github-app-auth.js";
+import { withGitRepositoryLock } from "./git-lock.js";
 import { activeSelfUpdateLease } from "./self-update-lease.js";
 import { findProject, findTask, mutateState } from "./store.js";
 import { laneProfile, laneProfilesConflict } from "./work-lanes.js";
@@ -309,33 +310,36 @@ async function prepareRunWorkspace(run, input = {}, log, authContext = null) {
 
   await mkdir(path.dirname(workspacePath), { recursive: true });
   await safeRemoveWorkspace(workspacePath, workspaceRoot);
-  await git(["fetch", "origin", "--prune"], { cwd: run.project.repoPath, timeout: 300_000, env: gitEnv });
-  await assertBranchReuseIsSafe(run, gitEnv, log);
+  return withGitRepositoryLock(run.project.repoPath, async () => {
+    log.write(`Acquired source repository Git lock: ${run.project.repoPath}\n`);
+    await git(["fetch", "origin", "--prune"], { cwd: run.project.repoPath, timeout: 300_000, env: gitEnv });
+    await assertBranchReuseIsSafe(run, gitEnv, log);
 
-  const startRef = await remoteBranchExists(run.project.repoPath, branch)
-    ? `origin/${branch}`
-    : `origin/${defaultBranch}`;
+    const startRef = await remoteBranchExists(run.project.repoPath, branch)
+      ? `origin/${branch}`
+      : `origin/${defaultBranch}`;
 
-  log.write(`Preparing isolated workspace for ${run.id}\n`);
-  log.write(`Source repo: ${run.project.repoPath}\n`);
-  log.write(`Workspace: ${workspacePath}\n`);
-  log.write(`Branch: ${branch}\n`);
-  log.write(`Start ref: ${startRef}\n`);
+    log.write(`Preparing isolated workspace for ${run.id}\n`);
+    log.write(`Source repo: ${run.project.repoPath}\n`);
+    log.write(`Workspace: ${workspacePath}\n`);
+    log.write(`Branch: ${branch}\n`);
+    log.write(`Start ref: ${startRef}\n`);
 
-  try {
-    await createWorktreeWorkspace(run, workspacePath, branch, startRef, log, gitEnv);
-    const workspace = { executionRepoPath: workspacePath, workspacePath, strategy: "worktree" };
-    await persistRunWorkspace(run, workspace);
-    return workspace;
-  } catch (error) {
-    log.write(`Worktree preparation fell back to clone: ${error.message}\n`);
-    await safeRemoveWorkspace(workspacePath, workspaceRoot);
-    await mkdir(path.dirname(workspacePath), { recursive: true });
-    await createCloneWorkspace(run, workspacePath, branch, startRef, log, gitEnv);
-    const workspace = { executionRepoPath: workspacePath, workspacePath, strategy: "clone" };
-    await persistRunWorkspace(run, workspace);
-    return workspace;
-  }
+    try {
+      await createWorktreeWorkspace(run, workspacePath, branch, startRef, log, gitEnv);
+      const workspace = { executionRepoPath: workspacePath, workspacePath, strategy: "worktree" };
+      await persistRunWorkspace(run, workspace);
+      return workspace;
+    } catch (error) {
+      log.write(`Worktree preparation fell back to clone: ${error.message}\n`);
+      await safeRemoveWorkspace(workspacePath, workspaceRoot);
+      await mkdir(path.dirname(workspacePath), { recursive: true });
+      await createCloneWorkspace(run, workspacePath, branch, startRef, log, gitEnv);
+      const workspace = { executionRepoPath: workspacePath, workspacePath, strategy: "clone" };
+      await persistRunWorkspace(run, workspace);
+      return workspace;
+    }
+  }, input.gitLock || {});
 }
 
 function withExecutionWorkspace(run, workspace) {
@@ -492,6 +496,42 @@ async function recordUnsafeBranchReuse(run, reason) {
       projectId: run.projectId,
       taskId: run.taskId,
       message: `${run.id} blocked stale branch reuse`,
+      createdAt: now,
+    });
+  });
+}
+
+function nonRetryableWorkspaceFailureReason(notes) {
+  const text = String(notes || "");
+  if (/GitHub App credentials .* were not found/i.test(text)) return "missing_github_app_credentials";
+  if (/GitHub App credentials .* invalid/i.test(text)) return "invalid_github_app_credentials";
+  if (/could not read app\.json/i.test(text)) return "invalid_github_app_credentials";
+  if (/private-key\.pem/i.test(text) && /not found|missing|could not read/i.test(text)) return "invalid_github_app_credentials";
+  return "";
+}
+
+async function pauseTaskForAutomationConfig(run, reason, notes) {
+  const now = new Date().toISOString();
+  await mutateState(async (state) => {
+    state.events = state.events || [];
+    const task = findTask(state, run.taskId);
+    if (task) {
+      task.status = "blocked";
+      task.assignedAgentRole = "owner";
+      task.updatedAt = now;
+    }
+    await appendTaskComment(
+      state,
+      run,
+      `${run.id} paused automation for this task: ${reason}.\n\n${notes}\n\nFix the Mission Control runner configuration, then move the task back to the appropriate ready/review state to retry.`,
+      now,
+    );
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "automation_config_blocked",
+      projectId: run.projectId,
+      taskId: run.taskId,
+      message: `${run.id} paused after non-retryable workspace preparation failure: ${reason}`,
       createdAt: now,
     });
   });
@@ -688,6 +728,7 @@ async function runClaimedRunWithSdk(run, input = {}) {
   let exitCode = 0;
   let status = "completed";
   let notes = "";
+  let pauseReason = "";
   let executionRun = run;
   let authContext = null;
 
@@ -735,8 +776,9 @@ async function runClaimedRunWithSdk(run, input = {}) {
     await writeFile(lastMessagePath, notes, "utf8");
   } catch (error) {
     status = "failed";
-    exitCode = error?.name === "AbortError" ? "timeout" : "sdk_error";
     notes = redactSecrets(error?.message || String(error), githubAppAuthSecrets(authContext));
+    pauseReason = nonRetryableWorkspaceFailureReason(notes);
+    exitCode = pauseReason || (error?.name === "AbortError" ? "timeout" : "sdk_error");
     log.write(`\nCodex SDK runner error: ${notes}\n`);
     try {
       await writeFile(lastMessagePath, notes, "utf8");
@@ -750,13 +792,15 @@ async function runClaimedRunWithSdk(run, input = {}) {
     await cleanupGitHubAppAuth(authContext);
   }
 
-  return completeRun(run.id, {
+  const completed = await completeRun(run.id, {
     status,
     exitCode,
     outputPath,
     lastMessagePath,
     notes,
   });
+  if (pauseReason) await pauseTaskForAutomationConfig(run, pauseReason, notes);
+  return completed;
 }
 
 async function runClaimedRunWithCli(run, input = {}) {
@@ -786,13 +830,16 @@ async function runClaimedRunWithCli(run, input = {}) {
     } catch {
       // Keep the run failure intact even if the summary file cannot be written.
     }
-    return completeRun(run.id, {
+    const completed = await completeRun(run.id, {
       status: "failed",
-      exitCode: "workspace_error",
+      exitCode: nonRetryableWorkspaceFailureReason(notes) || "workspace_error",
       outputPath,
       lastMessagePath,
       notes,
     });
+    const pauseReason = nonRetryableWorkspaceFailureReason(notes);
+    if (pauseReason) await pauseTaskForAutomationConfig(run, pauseReason, notes);
+    return completed;
   }
   const args = [
     "exec",

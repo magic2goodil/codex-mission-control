@@ -54,10 +54,12 @@ function notificationFor(state, run) {
   const project = findProject(state, run.projectId);
   const task = findTask(state, run.taskId);
   if (run.status === "failed") {
+    const failureNote = String(run.notes || run.exitCode || "").trim();
+    const logHint = run.outputPath ? ` Log: ${run.outputPath}` : "";
     return {
       title: "Mission Control run failed",
       subtitle: `${project?.key || run.projectId} · ${run.id}`,
-      body: `${task?.title || run.taskId}. Check ${run.outputPath || "the run log"}.`,
+      body: `${task?.title || run.taskId}.${failureNote ? ` ${failureNote}` : ""}${logHint}`,
     };
   }
   if (run.actionType === "notify_qa_review" || run.actionType === "qa_bundle_ready") {
