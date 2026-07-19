@@ -62,6 +62,17 @@ For an ad hoc shell or service override, set:
 MISSION_CONTROL_RUNNER_PROVIDER=codex-sdk
 ```
 
+Runner workspace preparation is serialized per source repository with a local
+Git lock under `~/.mission-control/locks/git` by default. This prevents
+parallel runner processes from fetching, pruning, or creating worktrees against
+the same checkout at the same time, which can otherwise surface as Git
+pack/object errors such as `Resource deadlock avoided`. Tune the lock with:
+
+- `MISSION_CONTROL_GIT_LOCK_ROOT`
+- `MISSION_CONTROL_GIT_LOCK_TIMEOUT_MS`
+- `MISSION_CONTROL_GIT_LOCK_STALE_MS`
+- `MISSION_CONTROL_GIT_LOCK_POLL_MS`
+
 ## QA Integration
 
 Trust Leads QA integration is opt-in per project:
@@ -101,6 +112,17 @@ Projects can also opt into keeping their QA branch and local preview checkout cu
     }
   }
 }
+```
+
+The same local preview can be configured without hand-editing the data file:
+
+```bash
+mission-control update-project myapp \
+  --local-qa-preview \
+  --local-qa-preview-checkout ~/.mission-control/qa-workspaces/myapp/myapp-clean \
+  --local-qa-preview-branch qa/integration \
+  --local-qa-preview-create \
+  --local-qa-preview-stash-dirty
 ```
 
 `syncDefaultBranchIntoIntegration` merges the latest configured default branch into the non-production QA branch before task PR heads are integrated. This is useful after the owner merges a PR to `main`: the QA branch catches up on the next sweep instead of leaving the local preview stale.

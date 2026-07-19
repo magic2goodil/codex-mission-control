@@ -64,6 +64,7 @@ async function optionsFrom(args) {
     githubAppCredentialsDir: args["github-apps-dir"] || defaults.githubAppCredentialsDir || config?.githubApps?.credentialsDir,
     githubAppRoleMap: config?.githubApps?.roleMap,
     githubAppDefaultRole: config?.githubApps?.defaultRole,
+    gitLock: defaults.gitLock || config?.defaults?.gitLock || config?.gitLock || {},
     intervalSeconds: secondsFrom(
       args.interval || args["interval-seconds"] || defaults.intervalSeconds,
       DEFAULT_INTERVAL_SECONDS,
