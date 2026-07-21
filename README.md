@@ -20,8 +20,9 @@ The local control plane is intentionally self-contained:
 - Includes a self-update worker that fast-forwards Mission Control main from `origin/main` and restarts local worker LaunchAgents after safe merged control-plane updates.
 - Runs builders/reviewers in isolated workspaces with lane-aware scheduling so backend, frontend, design, and devops work do not blindly collide.
 - Includes a notifier loop for local owner-review and failed-run notifications.
+- Includes worker heartbeats and an independent watchdog that repairs stranded task state and restarts stale workers.
 - Pins every Codex run to an auditable model/reasoning policy (`gpt-5.6-sol`, high by default; xhigh for lead and high-risk work).
-- Recovers orphaned runs, bounds retries, and pauses repeatedly failing work with a visible blocker instead of looping forever.
+- Recovers orphaned runs and tasks, bounds rapid retries, automatically probes transient failures again, and leaves only genuine configuration failures paused for owner repair.
 - Publishes workers into a stable runtime outside cloud-synced source folders before starting LaunchAgents.
 - Includes a GitHub App manifest setup helper for Mission Control bot identities.
 - Keeps project safety rules and validation commands beside the task.
@@ -106,7 +107,7 @@ Remove the LaunchAgents:
 npm run uninstall-agents
 ```
 
-The installer writes user LaunchAgents under `~/Library/LaunchAgents`, publishes an atomic runtime under `~/.mission-control/runtime`, and writes logs under `data/launch-agents/`. It does not install system services, ask for sudo, merge PRs, deploy production, or store private keys.
+The installer writes user LaunchAgents under `~/Library/LaunchAgents`, publishes an atomic runtime under `~/.mission-control/runtime`, and writes logs under `data/launch-agents/`. It prefers an installed supported even-numbered Node.js LTS runtime; set `MISSION_CONTROL_NODE_PATH` to override that choice. It does not install system services, ask for sudo, merge PRs, deploy production, or store private keys.
 
 ## CLI
 

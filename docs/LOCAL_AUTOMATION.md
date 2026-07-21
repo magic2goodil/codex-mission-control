@@ -13,6 +13,7 @@ The always-on stack includes:
 - `promotion`: assembles owner-QA-passed work into a validated release-candidate PR
 - `notifier`: sends local owner-review and failure notifications
 - `self-update`: fetches `origin/main`, fast-forwards Mission Control itself when safe, and restarts worker LaunchAgents
+- `watchdog`: reconciles stranded task state, watches worker heartbeats, and restarts stale workers
 
 ## Install
 
@@ -22,7 +23,19 @@ npm run setup
 npm run install-agents
 ```
 
-The installer publishes a stable runtime under `~/.mission-control/runtime`, creates a clean `main` checkout under `~/.mission-control/source` for self-updates, and points LaunchAgents at the immutable runtime. Local config and SQLite state remain in the working root. This prevents workers from executing half-synced files or depending on the branch currently open in a developer checkout. Re-running the installer atomically updates the runtime and restarts all workers.
+The installer publishes a stable runtime under `~/.mission-control/runtime`, creates a clean `main` checkout under `~/.mission-control/source` for self-updates, and points LaunchAgents at the immutable runtime. Local config and SQLite state remain in the working root. This prevents workers from executing half-synced files or depending on the branch currently open in a developer checkout. Re-running the installer atomically updates the runtime and restarts all workers. The installer prefers an available supported even-numbered Node.js LTS runtime; `MISSION_CONTROL_NODE_PATH` remains the explicit override.
+
+## Self-Healing Invariants
+
+Long-running workers write atomic heartbeats under `data/heartbeats/` every 30 seconds, including while a Codex run is active. The watchdog runs independently every two minutes and:
+
+- restarts a worker whose heartbeat is missing or stale
+- wakes the runner when queued durable runs have waited too long
+- wakes the dispatcher when dispatchable tasks have waited too long
+- returns a non-epic `in_progress` task to the queue when it has no queued or running durable run
+- automatically releases transient SDK, process, timeout, and orphan-run blockers after a bounded recovery delay
+
+Configuration blockers such as missing or invalid GitHub App credentials remain owner-gated. Tracking epics are exempt from the active-run invariant because their status represents child-task progress rather than direct builder execution.
 
 By default, the web UI is only available on the local machine:
 
@@ -196,6 +209,7 @@ Running builder/reviewer runs are ignored only when they are stale, such as a mi
 - `com.codex.mission-control.notifier`
 - `com.codex.mission-control.qa-integration`
 - `com.codex.mission-control.promotion`
+- `com.codex.mission-control.watchdog`
 
 During an applied update, Mission Control records a short-lived self-update lease in local state. The runner checks that lease before claiming queued builder/reviewer work, so queued runs wait until the fast-forward and LaunchAgent restart window is over instead of being started and interrupted.
 
