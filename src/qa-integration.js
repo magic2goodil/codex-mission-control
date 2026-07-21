@@ -43,7 +43,7 @@ function nextId(items, prefix) {
   const max = (items || [])
     .map((item) => String(item.id || ""))
     .filter((id) => id.startsWith(`${prefix}_`))
-    .map((id) => Number(id.split("_")[1]))
+    .map((id) => Number(id.slice(`${prefix}_`.length)))
     .filter(Number.isFinite)
     .reduce((highest, value) => Math.max(highest, value), 0);
   return `${prefix}_${max + 1}`;

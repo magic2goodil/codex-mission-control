@@ -400,6 +400,16 @@ test("successful QA integration uses an isolated workspace without switching the
       events: [],
       reviews: [],
       runs: [],
+      qaBundles: [
+        {
+          id: "qa_bundle_1",
+          projectId: "legacy_project",
+          projectKey: "legacy",
+          status: "ready",
+          integrationCommit: "legacy-commit",
+          tasks: [],
+        },
+      ],
     }, null, 2)}\n`, "utf8");
 
     const script = `
@@ -422,6 +432,8 @@ test("successful QA integration uses an isolated workspace without switching the
     assert.equal(state.tasks[0].integrationStatus, "ready");
     assert.equal(state.tasks[0].integrationWorkspacePath, report.projects[0].workspacePath);
     assert.match(state.comments[0].body, /Workspace:/);
+    assert.deepEqual(state.qaBundles.map((bundle) => bundle.id), ["qa_bundle_1", "qa_bundle_2"]);
+    assert.equal(state.tasks[0].qaBundleId, "qa_bundle_2");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
