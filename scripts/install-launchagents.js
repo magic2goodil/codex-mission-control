@@ -127,7 +127,6 @@ async function install() {
     await writeFile(target, rendered, "utf8");
     await launchctl(["bootstrap", `gui/${uid}`, target]);
     await launchctl(["enable", `gui/${uid}/${template.label}`], { ignoreErrors: true });
-    await launchctl(["kickstart", "-k", `gui/${uid}/${template.label}`], { ignoreErrors: true });
     installed.push(template.label);
   }
 
