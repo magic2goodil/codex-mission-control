@@ -32,6 +32,9 @@ Long-running workers write atomic heartbeats under `data/heartbeats/` every 30 s
 - restarts a worker whose heartbeat is missing or stale
 - wakes the runner when queued durable runs have waited too long
 - wakes the dispatcher when dispatchable tasks have waited too long
+- records the worker data root and disk availability with every heartbeat
+- pauses new claims and reports disk pressure instead of repeatedly restarting workers when free space is below the safety threshold
+- refuses to restart a LaunchAgent whose installed working root does not match the watchdog's current StudioOps root
 - returns a non-epic `in_progress` task to the queue when it has no queued or running durable run
 - automatically releases transient SDK, process, timeout, and orphan-run blockers after a bounded recovery delay
 
@@ -50,6 +53,8 @@ MISSION_CONTROL_HOST=0.0.0.0 MISSION_CONTROL_PORT=4317 npm run install-agents
 ```
 
 Only use `0.0.0.0` on a trusted local network.
+
+Run maintenance commands from the same working root used during `npm run install-agents`. A watchdog started from another checkout will report the root mismatch and leave the installed workers untouched. `STUDIOOPS_WORKING_ROOT`, `STUDIOOPS_DATA_DIR`, and the legacy `MISSION_CONTROL_*` aliases can select the intended persistent instance explicitly.
 
 ## Status
 
