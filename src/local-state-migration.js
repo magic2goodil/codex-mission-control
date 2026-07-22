@@ -212,18 +212,35 @@ function replacePathPrefix(value, mappings) {
   return raw;
 }
 
-function rewriteConfigValue(value, mappings, credentialsRoot) {
-  if (Array.isArray(value)) return value.map((item) => rewriteConfigValue(item, mappings, credentialsRoot));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, rewriteConfigValue(item, mappings, credentialsRoot)]),
-    );
+function rewriteKnownPath(container, key, mappings, credentialsRoot) {
+  if (!container || typeof container !== "object" || typeof container[key] !== "string") return;
+  if ([".mission-control/github-apps", "~/.mission-control/github-apps"].includes(container[key])) {
+    container[key] = credentialsRoot;
+    return;
   }
-  if (typeof value !== "string") return value;
-  if ([".mission-control/github-apps", "~/.mission-control/github-apps"].includes(value)) {
-    return credentialsRoot;
+  container[key] = replacePathPrefix(container[key], mappings);
+}
+
+function rewriteOperationalConfigPaths(config, mappings, credentialsRoot) {
+  const migrated = structuredClone(config);
+  const sections = [migrated, migrated.defaults].filter(Boolean);
+  for (const section of sections) {
+    rewriteKnownPath(section.githubApps, "credentialsDir", mappings, credentialsRoot);
+    rewriteKnownPath(section.gitLock, "lockRoot", mappings, credentialsRoot);
+    for (const key of ["runner", "qaIntegration", "promotion"]) {
+      rewriteKnownPath(section[key], "workspaceRoot", mappings, credentialsRoot);
+      rewriteKnownPath(section[key], "githubAppCredentialsDir", mappings, credentialsRoot);
+      rewriteKnownPath(section[key]?.gitLock, "lockRoot", mappings, credentialsRoot);
+    }
   }
-  return replacePathPrefix(value, mappings);
+  for (const project of migrated.projects || []) {
+    rewriteKnownPath(project, "repoPath", mappings.filter((mapping) => mapping.kind === "workspace"), credentialsRoot);
+    rewriteKnownPath(project.qaIntegration, "workspaceRoot", mappings, credentialsRoot);
+    rewriteKnownPath(project.qaIntegration?.localPreview, "checkoutPath", mappings.filter((mapping) => mapping.kind === "workspace"), credentialsRoot);
+    rewriteKnownPath(project.localQaPreview, "checkoutPath", mappings.filter((mapping) => mapping.kind === "workspace"), credentialsRoot);
+    rewriteKnownPath(project.promotion, "workspaceRoot", mappings, credentialsRoot);
+  }
+  return migrated;
 }
 
 async function migrateConfigPaths(input) {
@@ -231,17 +248,17 @@ async function migrateConfigPaths(input) {
   try {
     const config = extractConfigJson(await readFile(input.configPath, "utf8"));
     const mappings = [
-      { from: input.sourceRoot, to: input.targetRoot },
-      { from: input.legacyHome, to: input.studioHome },
-      { from: "~/.mission-control", to: input.studioHome },
+      { from: input.sourceRoot, to: input.targetRoot, kind: "control-plane" },
+      { from: input.legacyHome, to: input.studioHome, kind: "workspace" },
+      { from: "~/.mission-control", to: input.studioHome, kind: "workspace" },
     ];
-    const migrated = rewriteConfigValue(config, mappings, input.credentialsRoot);
+    const migrated = rewriteOperationalConfigPaths(config, mappings, input.credentialsRoot);
     const destination = path.join(input.targetRoot, "studioops.config.md");
     await writeFile(destination, renderConfigMarkdown(migrated), { encoding: "utf8", mode: 0o600 });
     await chmod(destination, 0o600).catch(() => {});
     return destination;
-  } catch {
-    return input.configPath;
+  } catch (error) {
+    throw new Error(`Could not migrate StudioOps configuration ${input.configPath}: ${error.message}`);
   }
 }
 

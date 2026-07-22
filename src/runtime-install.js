@@ -111,6 +111,16 @@ export function defaultRuntimeRoot() {
   return defaultStudioOpsRuntimeRoot();
 }
 
+export async function activateRuntime(runtime, input = {}) {
+  await swapCurrentLink(runtime.runtimeRoot, runtime.releasePath);
+  await pruneOldReleases(runtime.runtimeRoot, runtime.releasePath, Number(input.keepReleases || 3));
+  return {
+    ...runtime,
+    currentPath: path.join(runtime.runtimeRoot, "current"),
+    currentTarget: await readlink(path.join(runtime.runtimeRoot, "current")),
+  };
+}
+
 export async function deployRuntime(input = {}) {
   const sourceRoot = path.resolve(input.sourceRoot || process.cwd());
   const runtimeRoot = path.resolve(
@@ -153,15 +163,15 @@ export async function deployRuntime(input = {}) {
     });
   }
 
-  await swapCurrentLink(runtimeRoot, releasePath);
-  await pruneOldReleases(runtimeRoot, releasePath, Number(input.keepReleases || 3));
   const currentPath = path.join(runtimeRoot, "current");
-  return {
+  const runtime = {
     sourceRoot,
     runtimeRoot,
     releasePath,
     currentPath,
-    currentTarget: await readlink(currentPath),
+    currentTarget: "",
     version,
   };
+  if (input.activate === false) return runtime;
+  return activateRuntime(runtime, input);
 }

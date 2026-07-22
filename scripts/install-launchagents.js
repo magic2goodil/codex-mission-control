@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { access, chmod, copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
+  activateRuntime,
   defaultRuntimeRoot,
   deployRuntime,
   planSourceRemoteMigration,
@@ -152,6 +153,30 @@ async function restoreLaunchAgentFiles(snapshots) {
   }
 }
 
+async function setPlistEnvironment(target) {
+  const values = {
+    STUDIOOPS_HOME: studioOpsHome(),
+    STUDIOOPS_ROOT: workingRoot,
+    STUDIOOPS_CONFIG_ROOT: workingRoot,
+    STUDIOOPS_DATA_DIR: path.join(workingRoot, "data"),
+    STUDIOOPS_RUNTIME_ROOT: runtimeRoot,
+    STUDIOOPS_SOURCE_ROOT: sourceRoot,
+  };
+  try {
+    await execFileAsync("/usr/bin/plutil", ["-extract", "EnvironmentVariables", "xml1", "-o", "-", target]);
+  } catch {
+    await execFileAsync("/usr/bin/plutil", ["-insert", "EnvironmentVariables", "-xml", "<dict/>", target]);
+  }
+  for (const [key, value] of Object.entries(values)) {
+    const plistKey = `EnvironmentVariables.${key}`;
+    try {
+      await execFileAsync("/usr/bin/plutil", ["-replace", plistKey, "-string", value, target]);
+    } catch {
+      await execFileAsync("/usr/bin/plutil", ["-insert", plistKey, "-string", value, target]);
+    }
+  }
+}
+
 function ensureMac() {
   if (process.platform !== "darwin") {
     throw new Error("LaunchAgent installation is only supported on macOS. Use npm run dispatcher/runner/notifier manually on other systems.");
@@ -174,6 +199,31 @@ async function launchctl(args, options = {}) {
     if (options.ignoreErrors) return `${error.stdout || ""}${error.stderr || error.message}`.trim();
     throw error;
   }
+}
+
+async function labelIsLoaded(label) {
+  try {
+    await launchctl(["print", `gui/${uid}/${label}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function assertLabelsUnloaded(labels) {
+  const loaded = [];
+  for (const label of labels) {
+    if (await labelIsLoaded(label)) loaded.push(label);
+  }
+  if (loaded.length) throw new Error(`StudioOps agents did not stop cleanly: ${loaded.join(", ")}`);
+}
+
+async function assertLabelsLoaded(labels) {
+  const missing = [];
+  for (const label of labels) {
+    if (!(await labelIsLoaded(label))) missing.push(label);
+  }
+  if (missing.length) throw new Error(`StudioOps agents did not load cleanly: ${missing.join(", ")}`);
 }
 
 async function templates() {
@@ -327,7 +377,7 @@ function renderTemplate(raw, runtime, canonicalSourceRoot, nodePath) {
   return raw
     .replaceAll("__NODE_PATH__", nodePath)
     .replaceAll("__MISSION_CONTROL_REPO__", workingRoot)
-    .replaceAll("__MISSION_CONTROL_RUNTIME__", runtime.currentPath)
+    .replaceAll("__MISSION_CONTROL_RUNTIME__", runtime.releasePath)
     .replaceAll("__MISSION_CONTROL_SOURCE_REPO__", canonicalSourceRoot)
     .replaceAll("__LOG_DIR__", logDir)
     .replaceAll("__HOST__", defaultHost)
@@ -352,11 +402,12 @@ async function install() {
   let previousPlists = null;
   let agentsStopped = false;
   let maintenanceReleased = false;
+  let migrationResult = null;
 
   const releaseMaintenance = async () => {
     if (maintenanceReleased) return;
     for (const root of [...new Set([...maintenanceRoots, workingRoot])]) {
-      await releaseStudioOpsMaintenanceLease(root, maintenanceId).catch(() => {});
+      await releaseStudioOpsMaintenanceLease(root, maintenanceId);
     }
     maintenanceReleased = true;
   };
@@ -366,12 +417,13 @@ async function install() {
       await acquireStudioOpsMaintenanceLease(root, { id: maintenanceId });
     }
     const canonicalSourceRoot = await ensureSourceCheckout();
-    const runtime = await deployRuntime({ sourceRoot: repoRoot, runtimeRoot });
+    const runtime = await deployRuntime({ sourceRoot: repoRoot, runtimeRoot, activate: false });
     previousPlists = await snapshotLaunchAgentFiles(templateList);
+    agentsStopped = true;
     for (const template of templateList) {
       await launchctl(["bootout", `gui/${uid}`, targetPathForLabel(template.label)], { ignoreErrors: true });
     }
-    agentsStopped = true;
+    await assertLabelsUnloaded(templateList.map((template) => template.label));
 
     const legacyHome = path.resolve(expandLocalPath(
       process.env.STUDIOOPS_LEGACY_HOME || path.join(os.homedir(), ".mission-control"),
@@ -383,9 +435,8 @@ async function install() {
     if (homeMigration.copied.length) {
       console.log(`Migrated legacy StudioOps workspace directories: ${homeMigration.copied.join(", ")}.`);
     }
-    let migration = null;
     if (migrationRoot && path.resolve(migrationRoot) !== workingRoot) {
-      migration = await migrateLocalStudioOpsState({
+      migrationResult = await migrateLocalStudioOpsState({
         sourceRoot: migrationRoot,
         targetRoot: workingRoot,
         credentialsRoot: defaultStudioOpsCredentialsRoot(),
@@ -393,7 +444,7 @@ async function install() {
         studioHome: studioOpsHome(),
       });
       console.log(`Migrated StudioOps working state from ${migrationRoot} to ${workingRoot}.`);
-      if (migration.backupPath) console.log(`Migration backup: ${migration.backupPath}`);
+      if (migrationResult.backupPath) console.log(`Migration backup: ${migrationResult.backupPath}`);
     }
     await ensureWorkingRoot();
     await mkdir(logDir, { recursive: true, mode: 0o700 });
@@ -402,33 +453,52 @@ async function install() {
       const target = targetPathForLabel(template.label);
       const rendered = renderTemplate(await readFile(template.source, "utf8"), runtime, canonicalSourceRoot, nodePath);
       await writeFile(target, rendered, "utf8");
+      await setPlistEnvironment(target);
     }
-    await releaseMaintenance();
     for (const template of templateList) {
       const target = targetPathForLabel(template.label);
       await launchctl(["bootstrap", `gui/${uid}`, target]);
       await launchctl(["enable", `gui/${uid}/${template.label}`], { ignoreErrors: true });
       installed.push(template.label);
     }
-  } catch (error) {
-    if (agentsStopped && previousPlists) {
-      for (const template of templateList) {
-        await launchctl(["bootout", `gui/${uid}`, targetPathForLabel(template.label)], { ignoreErrors: true });
-      }
-      await restoreLaunchAgentFiles(previousPlists);
-    }
+    await assertLabelsLoaded(templateList.map((template) => template.label));
+    await activateRuntime(runtime);
     await releaseMaintenance();
-    if (agentsStopped && previousPlists) {
-      for (const template of templateList) {
-        const target = targetPathForLabel(template.label);
-        if (previousPlists.get(target) === null) continue;
-        await launchctl(["bootstrap", `gui/${uid}`, target], { ignoreErrors: true });
-        await launchctl(["enable", `gui/${uid}/${template.label}`], { ignoreErrors: true });
+  } catch (error) {
+    let rollbackError = null;
+    try {
+      if (agentsStopped && previousPlists) {
+        for (const template of templateList) {
+          await launchctl(["bootout", `gui/${uid}`, targetPathForLabel(template.label)], { ignoreErrors: true });
+        }
+        await assertLabelsUnloaded(templateList.map((template) => template.label));
+        await restoreLaunchAgentFiles(previousPlists);
+        const previousLabels = templateList
+          .filter((template) => previousPlists.get(targetPathForLabel(template.label)) !== null)
+          .map((template) => template.label);
+        for (const label of previousLabels) {
+          const target = targetPathForLabel(label);
+          await launchctl(["bootstrap", `gui/${uid}`, target]);
+          await launchctl(["enable", `gui/${uid}/${label}`], { ignoreErrors: true });
+        }
+        await assertLabelsLoaded(previousLabels);
       }
+      await releaseMaintenance();
+      if (migrationResult?.status === "migrated" && await pathExists(workingRoot)) {
+        const quarantinePath = `${workingRoot}.failed-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+        await rename(workingRoot, quarantinePath);
+        console.error(`Quarantined failed StudioOps migration at ${quarantinePath}.`);
+      }
+    } catch (rollbackFailure) {
+      rollbackError = rollbackFailure;
+    }
+    if (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        `StudioOps installation failed and rollback could not be verified. Maintenance remains active: ${error.message}; rollback: ${rollbackError.message}`,
+      );
     }
     throw error;
-  } finally {
-    await releaseMaintenance();
   }
 
   console.log(`Installed ${installed.length} StudioOps LaunchAgents:`);
