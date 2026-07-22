@@ -67,7 +67,9 @@ Do not relocate an active database by copying its live SQLite files. The install
 - `~/.codex/studioops/control-plane/data/backups/pre-local-root-migration-*.sqlite3`, mode `0600`
 - `~/.codex/studioops/control-plane/data/mission-control.sqlite3`, mode `0600`
 
-It also copies configuration and attachments under `~/.codex/studioops/control-plane`, migrates GitHub App credentials to `~/.codex/studioops/credentials/github-apps`, applies owner-only directory permissions, and then installs the new agent definitions. If migration or installation fails, the previous LaunchAgent files are restored and restarted. An existing destination database is never overwritten.
+It also copies configuration and attachments under `~/.codex/studioops/control-plane`, migrates GitHub App credentials to `~/.codex/studioops/credentials/github-apps`, applies owner-only directory permissions, and then installs the new agent definitions. If migration or installation fails, the previous LaunchAgent files are restored and restarted. The destination working root must not exist; the installer will not merge into it or overwrite an existing database.
+
+If an unused destination root already exists, first verify no LaunchAgent or process references it, inspect its contents, and rename it to a timestamped sibling backup such as `control-plane.pre-migration-YYYYMMDD-HHMMSS`. Do not delete it during the cutover. Run the installer only after `~/.codex/studioops/control-plane` is absent, and retain the renamed copy until post-migration verification is complete.
 
 For an installation without an existing web LaunchAgent, select the legacy working root explicitly:
 
