@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { planWatchdogActions } from "../src/watchdog.js";
+import { planWatchdogActions, restartWorker } from "../src/watchdog.js";
 import { readWorkerHeartbeats, staleWorkerNames, writeWorkerHeartbeat } from "../src/worker-heartbeat.js";
 
 test("heartbeats are written atomically and stale workers are identified", async () => {
@@ -14,8 +14,28 @@ test("heartbeats are written atomically and stale workers are identified", async
     const heartbeats = await readWorkerHeartbeats({ dataDir: root });
     assert.equal(heartbeats.length, 1);
     assert.equal(heartbeats[0].worker, "runner");
+    assert.equal(heartbeats[0].dataDir, root);
+    assert.equal(typeof heartbeats[0].disk.availableBytes, "number");
     assert.deepEqual(staleWorkerNames(heartbeats, ["runner"], { nowMs, staleAfterMs: 60_000 }), []);
     assert.deepEqual(staleWorkerNames(heartbeats, ["runner"], { nowMs: nowMs + 120_000, staleAfterMs: 60_000 }), ["runner"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("concurrent heartbeat pulses do not collide or leave temporary files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "studioops-heartbeat-concurrency-"));
+  try {
+    await Promise.all(Array.from({ length: 24 }, (_, index) => writeWorkerHeartbeat(
+      "runner",
+      { status: index % 2 ? "busy" : "idle" },
+      { dataDir: root },
+    )));
+    const files = await readdir(path.join(root, "heartbeats"));
+    assert.deepEqual(files, ["runner.json"]);
+    const heartbeats = await readWorkerHeartbeats({ dataDir: root });
+    assert.equal(heartbeats.length, 1);
+    assert.equal(heartbeats[0].worker, "runner");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -34,4 +54,42 @@ test("watchdog wakes the runner for old queued work and dispatcher for stranded 
   const actions = planWatchdogActions(state, fresh, { nowMs, workWaitMs: 60_000 });
   assert.ok(actions.some((item) => item.worker === "runner" && item.reason === "queued_run_waiting"));
   assert.ok(actions.some((item) => item.worker === "dispatcher" && item.reason === "dispatchable_task_waiting"));
+});
+
+test("disk pressure pauses restart planning instead of creating a restart loop", () => {
+  const actions = planWatchdogActions(
+    { runs: [], tasks: [] },
+    [],
+    {
+      disk: {
+        pressure: true,
+        path: "/tmp/studioops-data",
+        availableBytes: 1024,
+        availablePercent: 0.1,
+      },
+    },
+  );
+
+  assert.deepEqual(actions, [{
+    type: "report_disk_pressure",
+    reason: "disk_space_below_safety_threshold",
+    availableBytes: 1024,
+    availablePercent: 0.1,
+    path: "/tmp/studioops-data",
+  }]);
+});
+
+test("watchdog refuses to restart a LaunchAgent owned by another runtime root", async () => {
+  let restarted = false;
+  await assert.rejects(
+    restartWorker("runner", {
+      rootDir: "/tmp/studioops-current",
+      resolveWorkerRoot: async () => "/tmp/studioops-live",
+      restartWorker: async () => {
+        restarted = true;
+      },
+    }),
+    /does not match current root/,
+  );
+  assert.equal(restarted, false);
 });

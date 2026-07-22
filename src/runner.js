@@ -20,6 +20,7 @@ import { activeSelfUpdateLease } from "./self-update-lease.js";
 import { DATA_DIR, findProject, findTask, mutateState } from "./store.js";
 import { laneProfile, laneProfilesConflict } from "./work-lanes.js";
 import { DEFAULT_EXECUTION_POLICY, resolveExecutionPolicy } from "./execution-policy.js";
+import { readDiskAvailability } from "./worker-heartbeat.js";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_CODEX_BINS = [
@@ -27,7 +28,7 @@ const DEFAULT_CODEX_BINS = [
   "/Applications/Codex.app/Contents/Resources/codex",
 ];
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
-const RUN_OUTPUT_DIR = path.join(process.cwd(), "data", "run-outputs");
+const RUN_OUTPUT_DIR = path.join(DATA_DIR, "run-outputs");
 const DEFAULT_WORKSPACE_ROOT = path.join(os.homedir(), ".mission-control", "run-workspaces");
 const RUNNABLE_GROUPS = new Set(["builder", "reviewer"]);
 const RUNNABLE_STATUSES = new Set(["queued"]);
@@ -1177,11 +1178,27 @@ export async function runClaimedRun(run, input = {}) {
 }
 
 export async function runQueuedRuns(input = {}) {
+  const disk = input.disk || await readDiskAvailability({
+    ...input,
+    path: DATA_DIR,
+  });
+  if (disk.pressure) {
+    return {
+      generatedAt: new Date().toISOString(),
+      disk,
+      paused: true,
+      pauseReason: "disk_space_below_safety_threshold",
+      recovered: [],
+      claimed: [],
+      results: [],
+    };
+  }
   const recovered = await reconcileStaleRuns(input);
   const claimed = await claimRuns(input);
   const results = await Promise.all(claimed.map((run) => runClaimedRun(run, input)));
   return {
     generatedAt: new Date().toISOString(),
+    disk,
     recovered,
     claimed: claimed.map((run) => run.id),
     results,
@@ -1194,6 +1211,13 @@ export function formatRunnerReport(report) {
     `Recovered: ${(report.recovered || []).length}  Claimed: ${report.claimed.length}  Finished: ${report.results.length}`,
     "",
   ];
+  if (report.paused) {
+    lines.push(
+      `Automation paused: ${report.pauseReason}.`,
+      `Available disk: ${report.disk?.availableBytes || 0} bytes (${report.disk?.availablePercent || 0}%).`,
+    );
+    return lines.join("\n");
+  }
   for (const item of report.recovered || []) {
     lines.push(`[recovered] ${item.runId}: ${item.reason}${item.blocked ? " (retry limit reached)" : ""}`);
   }

@@ -14,6 +14,7 @@ It can:
 - run continuously through a local LaunchAgent
 - pin and record the selected model, reasoning effort, attempt number, and selection reason
 - recover stale running records whose process died or exceeded its allowed runtime
+- refuse new claims when the data volume is below the configured disk-space safety threshold
 - verify that builders linked a branch/PR and reviewers recorded an outcome before accepting a successful process exit
 
 It does not:
@@ -49,6 +50,8 @@ The default limit is one active Codex run. This keeps parallel builders from ind
 Every dispatched run is explicitly pinned to `gpt-5.6-sol`. Ordinary work uses `high` reasoning; lead reviews and architecture, auth, privacy, data, security, migration, and deployment work use `xhigh`. Configure role overrides under `defaults.executionPolicy.roles`.
 
 Each workflow action gets two attempts by default with a five-minute backoff. After the limit, StudioOps blocks the task with the run ID and failure reason for visible owner repair. A runner startup sweep also recovers dead-PID and overlong `running` records so one crashed process cannot consume concurrency forever.
+
+Before claiming work, the runner checks the data volume used for SQLite state and run output. The default safety floor is 5 GiB or 2% free, whichever is stricter. Existing builders are not killed by this check; new claims pause until capacity is restored, and the watchdog records the reason instead of entering a restart loop.
 
 ## Run Continuously
 

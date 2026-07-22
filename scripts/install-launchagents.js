@@ -8,16 +8,22 @@ import { defaultRuntimeRoot, deployRuntime } from "../src/runtime-install.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(process.cwd());
-const workingRoot = path.resolve(process.env.MISSION_CONTROL_WORKING_ROOT || repoRoot);
+const workingRoot = path.resolve(
+  process.env.STUDIOOPS_WORKING_ROOT || process.env.MISSION_CONTROL_WORKING_ROOT || repoRoot,
+);
 const templateDir = path.join(repoRoot, "deploy", "local");
 const launchAgentDir = path.join(os.homedir(), "Library", "LaunchAgents");
 const logDir = path.join(workingRoot, "data", "launch-agents");
 const uid = String(process.getuid?.() || "");
-const defaultHost = process.env.MISSION_CONTROL_HOST || "127.0.0.1";
-const defaultPort = process.env.MISSION_CONTROL_PORT || "4317";
-const runtimeRoot = process.env.MISSION_CONTROL_RUNTIME_ROOT || defaultRuntimeRoot();
-const sourceRoot = path.resolve(process.env.MISSION_CONTROL_SOURCE_ROOT || path.join(os.homedir(), ".mission-control", "source"));
-const sourceBranch = process.env.MISSION_CONTROL_SOURCE_BRANCH || "main";
+const defaultHost = process.env.STUDIOOPS_HOST || process.env.MISSION_CONTROL_HOST || "127.0.0.1";
+const defaultPort = process.env.STUDIOOPS_PORT || process.env.MISSION_CONTROL_PORT || "4317";
+const runtimeRoot = process.env.STUDIOOPS_RUNTIME_ROOT || process.env.MISSION_CONTROL_RUNTIME_ROOT || defaultRuntimeRoot();
+const sourceRoot = path.resolve(
+  process.env.STUDIOOPS_SOURCE_ROOT
+    || process.env.MISSION_CONTROL_SOURCE_ROOT
+    || path.join(os.homedir(), ".mission-control", "source"),
+);
+const sourceBranch = process.env.STUDIOOPS_SOURCE_BRANCH || process.env.MISSION_CONTROL_SOURCE_BRANCH || "main";
 
 function usage() {
   console.log(`StudioOps LaunchAgent installer
@@ -28,6 +34,11 @@ Usage:
   npm run status-agents
 
 Optional environment:
+  STUDIOOPS_HOST=0.0.0.0        Bind web UI to the local network
+  STUDIOOPS_PORT=4317           Web UI port
+  STUDIOOPS_WORKING_ROOT=...    Persistent config and SQLite state root
+  STUDIOOPS_RUNTIME_ROOT=...    Immutable installed runtime root
+  STUDIOOPS_SOURCE_ROOT=...     Clean main checkout used by self-update
   MISSION_CONTROL_HOST=0.0.0.0   Bind web UI to the local network
   MISSION_CONTROL_PORT=4317      Web UI port
   MISSION_CONTROL_NODE_PATH=...  Stable Node.js binary for every LaunchAgent
@@ -95,7 +106,8 @@ async function nodeCandidates() {
 }
 
 async function resolveNodePath() {
-  if (process.env.MISSION_CONTROL_NODE_PATH) return path.resolve(process.env.MISSION_CONTROL_NODE_PATH);
+  const configured = process.env.STUDIOOPS_NODE_PATH || process.env.MISSION_CONTROL_NODE_PATH;
+  if (configured) return path.resolve(configured);
   const supported = [];
   for (const candidate of await nodeCandidates()) {
     try {
