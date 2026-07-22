@@ -1,0 +1,46 @@
+{
+  "name": "studioops",
+  "version": "0.1.0+codex.20260722185818",
+  "description": "Run software work through a senior AI engineering team and a structured delivery board.",
+  "author": {
+    "name": "Team Robison",
+    "url": "https://github.com/magic2goodil"
+  },
+  "homepage": "https://github.com/magic2goodil/studioops",
+  "repository": "https://github.com/magic2goodil/studioops",
+  "license": "MIT",
+  "keywords": [
+    "ai-engineering",
+    "software-delivery",
+    "project-management",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "StudioOps",
+    "shortDescription": "A senior AI engineering team with a real workflow.",
+    "longDescription": "Turn software ideas into structured projects and tasks, then move them through builders, domain review, lead review, QA, and a human release gate.",
+    "developerName": "Team Robison",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Structured intake",
+      "Local project orchestration",
+      "Engineering workflow"
+    ],
+    "websiteURL": "https://github.com/magic2goodil/studioops",
+    "composerIcon": "./assets/studioops-composer-icon.png",
+    "logo": "./assets/studioops-logo.png",
+    "logoDark": "./assets/studioops-logo.png",
+    "screenshots": [
+      "./assets/screenshot-flow-overview.png",
+      "./assets/screenshot-standards-contract.png",
+      "./assets/screenshot-review-gate.png"
+    ],
+    "defaultPrompt": [
+      "Create this project in StudioOps.",
+      "Run this feature through StudioOps.",
+      "Turn this mockup into StudioOps tasks."
+    ],
+    "brandColor": "#8F63FF"
+  }
+}
