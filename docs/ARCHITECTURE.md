@@ -2,6 +2,22 @@
 
 Codex Mission Control is a local-first Node.js control plane with transactional SQLite persistence.
 
+```mermaid
+flowchart TB
+    UI["Browser UI and CLI"] --> DB["SQLite state database"]
+    ST["Steward and supervisor"] --> DB
+    DI["Dispatcher"] --> DB
+    RU["Codex runner"] --> DB
+    RU --> WT["Isolated Git workspaces"]
+    WT --> GH["Feature branches and pull requests"]
+    RE["Domain and lead reviews"] --> DB
+    QA["Non-production QA integration"] --> DB
+    QA --> QP["Local QA preview"]
+    PR["Release-candidate promotion"] --> DB
+    PR --> GH
+    WD["Heartbeats and watchdog"] --> DB
+```
+
 ## Components
 
 - `src/server.js`: HTTP server, static file serving, JSON API.
@@ -30,6 +46,8 @@ Postgres is a future backend option when Mission Control needs multiple machines
 
 LaunchAgents execute an immutable release under `~/.mission-control/runtime/releases/`, with `current` swapped atomically. Their working directory still points at the configured working root so the local config and database remain stable. A separate clean `~/.mission-control/source` checkout stays on `main` for self-updates, independent of any developer feature branch. This avoids partial reads from cloud-synced development folders and ensures a restart actually runs the newly installed worker version.
 
+The UI and CLI can run anywhere Node.js is supported. The included always-on service installer, local notification channel, heartbeat scheduling, and worker restart implementation currently target macOS LaunchAgents.
+
 ## Safety Gates
 
 Builders create feature PRs. Leads approve work into a non-production QA branch. The owner tests a QA bundle. Promotion creates a release-candidate PR against the protected default branch. Production deployment is only authorized by an explicit release/tag workflow.
@@ -38,4 +56,16 @@ Builders create feature PRs. Leads approve work into a non-production QA branch.
 
 Mission Control may contain sensitive project context. By default the server binds to `127.0.0.1`.
 
+The browser UI is not an internet-facing authenticated multi-user application. Do not expose it directly to the public internet. Binding to a LAN address should be limited to a trusted network with host firewall controls.
+
 The data directory is mode `0700`; the database, WAL, shared-memory, and migrated legacy JSON files are mode `0600`. Do not put secrets, API keys, private customer data, or credentials in task descriptions. OAuth credentials and GitHub App private keys remain outside the database and repository.
+
+## Trust Boundaries
+
+- Mission Control state and configuration are trusted local inputs.
+- Project repositories and validation commands are executable inputs; register only repositories and commands the owner trusts.
+- Codex builders and reviewers are privileged development workers, not sandboxed production services.
+- GitHub Apps should have access only to intended repositories and only the permissions documented in `docs/GITHUB_APP_BOTS.md`.
+- QA integration is explicitly non-production.
+- Promotion may create a PR against the protected target branch but may not merge it.
+- Only a separate owner-authorized release or tag may initiate production deployment.
