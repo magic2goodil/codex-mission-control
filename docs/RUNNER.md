@@ -6,6 +6,7 @@ It claims queued builder/reviewer runs and launches a Codex provider against the
 
 It can:
 
+- claim systems-architect runs before builders and machine-check their durable architecture handoff
 - claim one or more queued builder/reviewer runs
 - mark runs `running`, `completed`, or `failed`
 - stream Codex output to `data/run-outputs/`
@@ -56,7 +57,7 @@ Before claiming work, the runner checks the data volume used for SQLite state an
 ## Run Continuously
 
 ```bash
-npm run runner -- --watch --interval 300 --limit 1
+npm run runner -- --watch --interval 10 --limit 1
 ```
 
 The LaunchAgent example lives at:
@@ -189,6 +190,8 @@ node src/mission-control-cli.js run-prompt run_1
 ## Human Gate
 
 The runner can create branches, validate work, commit, push, and open/update PRs when the task asks for that. It must not merge or deploy.
+
+Systems-architect runs are read-only against product code. They inspect the repository and supplied assets, create/update StudioOps task records, and complete the durable architecture handoff described in [ARCHITECT.md](ARCHITECT.md).
 
 Once reviewers and lead review pass, the task moves to `user_review`, or to `qa_review` when Trust Leads is enabled. The notifier then tells the human owner. That is the local QA or merge/deploy gate; production still requires explicit owner approval.
 

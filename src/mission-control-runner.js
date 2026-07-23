@@ -9,7 +9,7 @@ import {
 } from "./runner.js";
 import { runResilientWorkerLoop } from "./worker-heartbeat.js";
 
-const DEFAULT_INTERVAL_SECONDS = 300;
+const DEFAULT_INTERVAL_SECONDS = 10;
 const DEFAULT_LIMIT = 1;
 
 function parseArgs(argv) {
@@ -122,7 +122,7 @@ async function main() {
 Usage:
   studioops-runner --plan
   studioops-runner
-  studioops-runner --watch --interval 300 --limit 1
+  studioops-runner --watch --interval 10 --limit 1
   studioops-runner --watch --timeout-ms 7200000
   studioops-runner --provider codex-sdk
   studioops-runner --model gpt-5.6-sol --model-reasoning-effort high

@@ -21,6 +21,9 @@ const DATA_FILE = LEGACY_DATA_FILE;
 
 const VALID_STATUSES = new Set([
   "idea",
+  "architecture_pending",
+  "architecture_in_progress",
+  "architecture_ready",
   "ready",
   "queued",
   "in_progress",
@@ -72,9 +75,11 @@ const DEPENDENCY_COMPLETE_STATUSES = new Set([
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running"]);
 const DEFAULT_ORPHANED_TASK_GRACE_MS = 15 * 60 * 1000;
-const DEFAULT_TRANSIENT_RECOVERY_MS = 15 * 60 * 1000;
-const MAX_TRANSIENT_RECOVERY_MS = 2 * 60 * 60 * 1000;
+const DEFAULT_TRANSIENT_RECOVERY_MS = 2 * 60 * 1000;
+const MAX_TRANSIENT_RECOVERY_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_TRANSIENT_RECOVERIES = 1;
+const VALID_DELIVERY_MODES = new Set(["functional", "prototype", "visual-only"]);
+const ARCHITECTURE_TASK_PATTERN = /\b(app|application|platform|product|system|dashboard|portal|website|web app|mobile|native|mockup|redesign)\b/i;
 
 const DEFAULT_REVIEW_PIPELINE = [
   {
@@ -252,6 +257,45 @@ function normalizeBoolean(value, defaultValue = false) {
   return defaultValue;
 }
 
+function normalizeDeliveryMode(value, fallback = "functional") {
+  const mode = String(value || "").trim().toLowerCase();
+  return VALID_DELIVERY_MODES.has(mode) ? mode : fallback;
+}
+
+function architectureText(input = {}) {
+  return [
+    input.title,
+    input.description,
+    input.userStory || input.story,
+    input.expectedOutcome || input.expected,
+    input.type,
+    input.area,
+  ].filter(Boolean).join(" ");
+}
+
+export function taskRequiresArchitecture(input = {}) {
+  if (Object.prototype.hasOwnProperty.call(input, "architectureRequired")) {
+    return normalizeBoolean(input.architectureRequired, false);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "architectureApproved")) {
+    return !normalizeBoolean(input.architectureApproved, false);
+  }
+  if (String(input.type || "").trim().toLowerCase() === "epic") return true;
+  const attachments = normalizeAttachments(input.attachments || input.attachment);
+  return attachments.length > 0 && ARCHITECTURE_TASK_PATTERN.test(architectureText(input));
+}
+
+function architectureIsComplete(task = {}) {
+  return ["completed", "inherited", "not_required"].includes(task.architectureStatus);
+}
+
+function statusWithArchitectureGate(input, requestedStatus) {
+  const status = requestedStatus || "idea";
+  if (!["ready", "queued"].includes(status)) return status;
+  if (!taskRequiresArchitecture(input)) return status;
+  return architectureIsComplete(input) ? status : "architecture_pending";
+}
+
 function normalizeReviewPolicy(value = {}) {
   const maxCycles = Number(value.maxBuilderReviewCycles ?? value.maxReviewCycles ?? DEFAULT_REVIEW_POLICY.maxBuilderReviewCycles);
   return {
@@ -403,7 +447,14 @@ export async function addTask(input) {
     const now = new Date().toISOString();
     const project = findProject(state, input.project || input.projectId);
     if (!project) throw new Error(`Unknown project: ${input.project || input.projectId}`);
-    const status = input.status || "idea";
+    const architectureRequired = taskRequiresArchitecture(input);
+    const architectureStatus = normalizeBoolean(input.architectureApproved, false)
+      ? "inherited"
+      : architectureRequired ? "pending" : "not_required";
+    const status = statusWithArchitectureGate(
+      { ...input, architectureRequired, architectureStatus },
+      input.status || "idea",
+    );
     if (!VALID_STATUSES.has(status)) throw new Error(`Invalid status: ${status}`);
     const title = String(input.title || "").trim();
     if (!title) throw new Error("Task title is required.");
@@ -427,6 +478,14 @@ export async function addTask(input) {
       expectedOutcome: String(input.expectedOutcome || input.expected || "").trim(),
       attachments: normalizeAttachments(input.attachments || input.attachment),
       acceptanceCriteria: normalizeList(input.acceptanceCriteria),
+      deliveryMode: normalizeDeliveryMode(input.deliveryMode),
+      architectureRequired,
+      architectureStatus,
+      architectureParentTaskId: String(input.architectureParentTaskId || "").trim(),
+      architectureSummary: "",
+      architectureDecisionTaskIds: [],
+      architectureCompletedAt: "",
+      architectureCompletedBy: "",
       privacyNotes: String(input.privacyNotes || "").trim(),
       securityNotes: String(input.securityNotes || "").trim(),
       branchName: String(input.branchName || "").trim(),
@@ -470,6 +529,12 @@ export async function updateTask(taskId, patch) {
       "parentTaskId",
       "userStory",
       "expectedOutcome",
+      "deliveryMode",
+      "architectureStatus",
+      "architectureParentTaskId",
+      "architectureSummary",
+      "architectureCompletedAt",
+      "architectureCompletedBy",
       "privacyNotes",
       "securityNotes",
       "branchName",
@@ -480,8 +545,21 @@ export async function updateTask(taskId, patch) {
     ];
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(patch, key)) {
-        task[key] = String(patch[key] || "").trim();
+        task[key] = key === "deliveryMode"
+          ? normalizeDeliveryMode(patch[key])
+          : String(patch[key] || "").trim();
       }
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "architectureRequired")) {
+      task.architectureRequired = normalizeBoolean(patch.architectureRequired, false);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "architectureApproved")) {
+      task.architectureStatus = normalizeBoolean(patch.architectureApproved, false)
+        ? "inherited"
+        : task.architectureRequired ? "pending" : "not_required";
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "architectureDecisionTaskIds")) {
+      task.architectureDecisionTaskIds = normalizeList(patch.architectureDecisionTaskIds);
     }
     if (Object.prototype.hasOwnProperty.call(patch, "acceptanceCriteria")) {
       task.acceptanceCriteria = normalizeList(patch.acceptanceCriteria);
@@ -495,6 +573,14 @@ export async function updateTask(taskId, patch) {
     validateTaskRelationships(state, task.id, task.parentTaskId, task.dependsOnTaskIds || []);
     if (Object.prototype.hasOwnProperty.call(patch, "attachments")) {
       task.attachments = normalizeAttachments(patch.attachments);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(patch, "status")
+      && ["ready", "queued"].includes(task.status)
+      && task.architectureRequired
+      && !architectureIsComplete(task)
+    ) {
+      task.status = "architecture_pending";
     }
     if (patch.status === "builder_review" && previousStatus !== "builder_review") {
       task.reviewCycle = Number(task.reviewCycle || 0) + 1;
@@ -517,6 +603,73 @@ export async function updateTask(taskId, patch) {
     });
     return task;
   });
+}
+
+export function completeArchitectureInState(state, taskId, input = {}) {
+    const task = findTask(state, taskId);
+    if (!task) throw new Error(`Unknown task: ${taskId}`);
+    const summary = String(input.body || input.summary || "").trim();
+    if (summary.length < 120) {
+      throw new Error("Architecture completion requires a substantive summary of at least 120 characters.");
+    }
+    const decisionTaskIds = normalizeList(
+      input.taskIds || input.decisionTaskIds || input.architectureDecisionTaskIds,
+    );
+    const childTasks = decisionTaskIds.map((id) => {
+      const child = findTask(state, id);
+      if (!child) throw new Error(`Unknown architecture child task: ${id}`);
+      if (child.projectId !== task.projectId) {
+        throw new Error(`Architecture child ${id} belongs to another project.`);
+      }
+      return child;
+    });
+    if (String(task.type || "").toLowerCase() === "epic" && childTasks.length === 0) {
+      throw new Error("Epic architecture completion requires at least one dependency-linked child task.");
+    }
+
+    const now = new Date().toISOString();
+    const author = String(input.author || "StudioOps Systems Architect").trim();
+    task.architectureRequired = true;
+    task.architectureStatus = "completed";
+    task.architectureSummary = summary;
+    task.architectureDecisionTaskIds = decisionTaskIds;
+    task.architectureCompletedAt = now;
+    task.architectureCompletedBy = author;
+    task.assignedAgentRole = "";
+    task.status = String(task.type || "").toLowerCase() === "epic" ? "architecture_ready" : "ready";
+    task.updatedAt = now;
+
+    for (const child of childTasks) {
+      child.architectureRequired = true;
+      child.architectureStatus = "inherited";
+      child.architectureParentTaskId = task.id;
+      if (!child.parentTaskId) child.parentTaskId = task.id;
+      if (child.status === "architecture_pending" || child.status === "idea") child.status = "ready";
+      child.updatedAt = now;
+    }
+
+    state.comments = state.comments || [];
+    state.comments.push({
+      id: nextId(state.comments, "comment"),
+      taskId: task.id,
+      author,
+      body: `Architecture decision recorded.\n\n${summary}${decisionTaskIds.length ? `\n\nImplementation tasks: ${decisionTaskIds.join(", ")}` : ""}`,
+      createdAt: now,
+    });
+    state.events = state.events || [];
+    state.events.push({
+      id: nextId(state.events, "event"),
+      type: "architecture_completed",
+      projectId: task.projectId,
+      taskId: task.id,
+      message: `${task.title}: architecture completed with ${decisionTaskIds.length} implementation task(s)`,
+      createdAt: now,
+    });
+    return task;
+}
+
+export async function completeArchitecture(taskId, input = {}) {
+  return mutateState(async (state) => completeArchitectureInState(state, taskId, input));
 }
 
 function recordQaDecisionInState(state, task, input = {}) {
@@ -879,6 +1032,7 @@ export function reconcileAutomationStateInState(state, input = {}) {
       task.reviewerThreadId = "";
       task.retryNotBefore = "";
       task.lastAutomationRecoveryCount = recoveryCount;
+      task.automationAttemptEpoch = Number(task.automationAttemptEpoch || 0) + 1;
       task.updatedAt = now;
       delete task.automationBlocker;
       recordRecovery(
@@ -1514,6 +1668,91 @@ export function taskWithProject(state, task) {
   };
 }
 
+export function functionalDeliveryContract(task = {}) {
+  const mode = normalizeDeliveryMode(task.deliveryMode);
+  if (mode === "visual-only") {
+    return [
+      "Delivery mode: visual-only (explicitly scoped)",
+      "- Match the supplied visual direction and responsive intent.",
+      "- Do not imply that inert controls, fixture data, or placeholder routes are functional.",
+      "- Disable or visibly label non-functional interactions, and record the functional follow-up tasks.",
+    ].join("\n");
+  }
+  const prototypeNote = mode === "prototype"
+    ? "- A prototype may use local/dev-only adapters, but its limitations must be explicit and production paths must not silently use fixtures."
+    : "- Production-shaped behavior is the default; fixtures are allowed only as explicit seeds or development adapters, not as the completed runtime data source.";
+  return [
+    `Delivery mode: ${mode}`,
+    "- A mockup is evidence of presentation and interaction intent; it is not authorization to deliver a static replica.",
+    "- Inventory every visible control, route, data region, and state. Primary controls must execute real behavior or be explicitly disabled and labeled as unavailable.",
+    "- Define the client/server boundary, source of truth, persistence lifecycle, authorization boundary, and loading/empty/error/retry states for every data-bearing surface.",
+    "- Durable user outcomes must survive refresh and process restart. Use migrations, indexes, bounded queries, pagination/limits, and cache or queue infrastructure only when the workload justifies them.",
+    "- Keep payloads and rendering work bounded. Record performance budgets or query/response evidence for the core path.",
+    "- Run the product locally as a coherent vertical slice and add executable validation that proves the core behavior, not only that components render.",
+    prototypeNote,
+  ].join("\n");
+}
+
+function systemsArchitectPrompt(task, project, context) {
+  const completionCommand = `node <STUDIOOPS_CLI_PATH> architecture-complete ${task.id} --body "..." --task-ids "task_..."`;
+  return `You are the systems architect for StudioOps task ${task.id}.
+
+Model requirement: gpt-5.6-sol
+Reasoning requirement: xhigh
+
+Project: ${project.name}
+Repository path: ${project.repoPath || "(not recorded)"}
+Task type: ${task.type || "feature"}
+Parent epic/task: ${context.parent ? `${context.parent.id}: ${context.parent.title}` : "(none)"}
+
+Task:
+${task.title}
+
+Description:
+${task.description || "(none)"}
+
+User story:
+${task.userStory || "(not recorded)"}
+
+Expected outcome:
+${task.expectedOutcome || "(not recorded)"}
+
+Supplied assets and context:
+${context.attachments}
+
+Acceptance criteria:
+${context.criteria}
+
+Project context:
+${context.projectContext}
+
+Project standards:
+${context.standards}
+
+Architecture mandate:
+- Inspect the actual repository and every supplied mockup, screenshot, logo, and reference before proposing work. Inventory canonical assets and name the exact asset builders must use; never redraw or substitute a supplied logo without an explicit product decision.
+- Decompose the experience into functional slices: navigation, screens/components, user interactions, state transitions, data-bearing regions, background work, administration, and failure/recovery paths.
+- Define the smallest modern architecture that meets the evidence. Do not add Redis, queues, fanout, services, or caches by fashion; add each only for a stated latency, throughput, consistency, isolation, durability, or operational requirement.
+- Define server/runtime boundaries, data ownership, durable persistence, schema and migrations, indexes, query shapes, pagination/limits, API contracts, event/job contracts, cache policy, invalidation, and idempotency where relevant.
+- Define authentication, authorization, privacy/consent, secrets, abuse controls, retention, backups/recovery, observability, and audit behavior.
+- Define performance budgets: critical payload sizes, query counts, rendering/loading strategy, concurrency assumptions, and what will be measured.
+- Define loading, empty, error, offline/retry, and degraded states—not only the happy-path mockup.
+- Define the local development and QA path, including seed data, services, health checks, and end-to-end smoke coverage.
+- Capture material decisions and rejected alternatives with concise reasons.
+- Break broad work into dependency-linked StudioOps child tasks. Each child must include the architectural constraints it consumes, observable acceptance criteria, validation commands/expectations, correct attachments, a narrow lane/work area, and \`--architecture-approved\`.
+- Preserve a single coherent architecture across those child tasks. Builders must not independently reinvent infrastructure or data contracts.
+
+Required durable handoff:
+1. Create or update the implementation child tasks through the StudioOps CLI.
+2. Record a substantive architecture summary and the implementation task IDs with:
+   \`${completionCommand}\`
+3. For an epic, at least one child task is mandatory.
+4. Do not edit product code, open a PR, merge, or deploy. Your deliverable is the durable architecture and executable task graph.
+
+${functionalDeliveryContract(task)}
+`;
+}
+
 export function generatePrompt(state, taskId, role = "builder") {
   const task = findTask(state, taskId);
   if (!task) throw new Error(`Unknown task: ${taskId}`);
@@ -1545,6 +1784,16 @@ export function generatePrompt(state, taskId, role = "builder") {
     `- Trust lead approvals after review completion: ${reviewPolicy.trustLeadApprovals ? "yes, route to QA review instead of per-task owner review" : "no, route to owner review"}`,
     `- Lead-approved integration branch: ${reviewPolicy.integrationBranch || "(not configured)"}`,
   ].join("\n");
+
+  if (role === "systems-architect" || role === "architect") {
+    return systemsArchitectPrompt(task, project, {
+      parent,
+      attachments,
+      criteria,
+      projectContext: context,
+      standards,
+    });
+  }
 
   if (role !== "builder") {
     const reviewerProfile = reviewerProfileForRole(role);
@@ -1593,6 +1842,9 @@ ${reviewPipeline}
 
 Review loop policy:
 ${reviewPolicyText}
+
+Functional delivery contract:
+${functionalDeliveryContract(task)}
 
 Review instructions:
 - Review as a senior engineer in the ${reviewerProfile.domain} lane.
@@ -1668,6 +1920,9 @@ ${criteria}
 
 Validation commands:
 ${validation}
+
+Functional delivery contract:
+${functionalDeliveryContract(task)}
 
 Builder instructions:
 - Create or switch to the feature branch.

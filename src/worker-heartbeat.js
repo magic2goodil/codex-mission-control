@@ -115,7 +115,7 @@ export function staleWorkerNames(heartbeats, expectedWorkers, input = {}) {
 
 export async function runResilientWorkerLoop(input) {
   const worker = safeWorkerName(input.worker);
-  const intervalSeconds = Math.max(1, Number(input.intervalSeconds || 300));
+  const intervalSeconds = Math.max(1, Number(input.intervalSeconds || 10));
   const heartbeatSeconds = Math.max(5, Number(input.heartbeatSeconds || DEFAULT_HEARTBEAT_SECONDS));
   let status = "starting";
   let lastError = "";

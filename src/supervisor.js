@@ -199,6 +199,24 @@ function taskActions(state, task, options = {}) {
     )];
   }
 
+  const architectureComplete = ["completed", "inherited", "not_required"].includes(task.architectureStatus);
+  if (
+    ["architecture_pending", "architecture_in_progress"].includes(task.status)
+    || (BUILDABLE_STATUSES.has(task.status) && task.architectureRequired && !architectureComplete)
+  ) {
+    return [actionBase(
+      state,
+      task,
+      "start_architecture",
+      "systems-architect",
+      "This product/app task requires a durable systems architecture and implementation task graph before builders can start.",
+      {
+        ...options,
+        nextStatus: "architecture_in_progress",
+      },
+    )];
+  }
+
   if (BUILDABLE_STATUSES.has(task.status)) {
     if (missingDependencies.length) {
       return [actionBase(
@@ -373,7 +391,7 @@ export function createSupervisorReport(state, options = {}) {
     : allActions.filter((action) => !passiveActionTypes.has(action.type));
   return {
     generatedAt: new Date().toISOString(),
-    intervalSeconds: Number(options.intervalSeconds || 300),
+    intervalSeconds: Number(options.intervalSeconds || 15),
     mode: options.mode || "once",
     projects: (state.projects || []).map((project) => projectSummary(state, project)),
     totals: {
